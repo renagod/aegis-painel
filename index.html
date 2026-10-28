@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegis · Painel</title>
+<!--
+  Painel do familiar / equipe — PROTÓTIPO (28/10/2026). Ver LEIA-ME.md.
+  1. Preencha SUPABASE_URL e CHAVE_PUBLICA abaixo (os mesmos do ConfigNuvem.java do app).
+  2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
+     (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
+  Não use o token_celular aqui: o painel só precisa do token_painel.
+-->
+<style>
+  :root {
+    --fundo: #F3F6FB; --superficie: #FFFFFF; --superficie-alta: #EAF0F9; --borda: #DCE4F1;
+    --texto: #0E1A2F; --texto-2: #5A6A86; --texto-3: #8A98B2;
+    --primaria: #1D5BD8; --primaria-2: #164AB4; --painel: #0F3A8F;
+    --ok: #12A363; --alerta: #C98A06; --perigo: #D93A3A; --linha: #1D5BD8; --grade: #E3E9F3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fundo: #0B1220; --superficie: #131C2E; --superficie-alta: #1A2540; --borda: #26324D;
+      --texto: #E8EEF9; --texto-2: #9AA9C4; --texto-3: #6D7C99;
+      --primaria: #5B8CFF; --primaria-2: #7AA2FF; --painel: #10234D;
+      --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42;
+    }
+  }
+  :root[data-theme="dark"] {
+    --fundo: #0B1220; --superficie: #131C2E; --superficie-alta: #1A2540; --borda: #26324D;
+    --texto: #E8EEF9; --texto-2: #9AA9C4; --texto-3: #6D7C99;
+    --primaria: #5B8CFF; --primaria-2: #7AA2FF; --painel: #10234D;
+    --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fundo); color: var(--texto);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 16px 40px; }
+  header { background: var(--painel); color: #fff; border-radius: 18px; padding: 18px 20px; }
+  header .marca { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+  header h1 { margin: 2px 0 10px; font-size: 22px; font-weight: 600; }
+  .pilula { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #D6E2FF; }
+  .ponto { width: 10px; height: 10px; border-radius: 50%; background: #7F93BF; flex: none; }
+  .ponto.ok { background: #5EE0A0; } .ponto.alerta { background: #F7C14B; } .ponto.erro { background: #FF6B6B; }
+  h2 { font-size: 16px; font-weight: 600; margin: 26px 4px 10px; }
+  .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .cartao { background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; padding: 14px 16px; }
+  .cartao .rot { font-size: 13px; color: var(--texto-2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .cartao .val { font-size: clamp(24px, 7vw, 30px); white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .cartao .val small { font-size: 14px; font-weight: 500; color: var(--texto-2); margin-left: 3px; }
+  .selo { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--superficie-alta); color: var(--texto-2); }
+  .quando { font-size: 13px; color: var(--texto-2); margin: 8px 4px 0; }
+  .acao { background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; margin-top: 12px; }
+  .acao .linha { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 0; border-radius: 12px; padding: 12px 18px; cursor: pointer; }
+  .botao { background: var(--primaria); color: #fff; font-weight: 600; }
+  .botao:hover { background: var(--primaria-2); }
+  .botao:disabled { opacity: .5; cursor: default; }
+  .seg { display: inline-flex; background: var(--superficie-alta); border-radius: 10px; padding: 3px; }
+  .seg button { padding: 6px 12px; border-radius: 8px; background: transparent; color: var(--texto-2); font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: var(--superficie); color: var(--texto); font-weight: 600; }
+  select { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); }
+  .msg { font-size: 14px; color: var(--texto-2); }
+  .msg.erro { color: var(--perigo); } .msg.ok { color: var(--ok); }
+  .barra { height: 6px; background: var(--superficie-alta); border-radius: 99px; overflow: hidden; margin-top: 10px; display: none; }
+  .barra > div { height: 100%; width: 0; background: var(--primaria); transition: width .9s linear; }
+  .grafico { background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; padding: 12px 12px 6px; }
+  .grafico .topo { display: flex; justify-content: space-between; align-items: center; margin: 0 4px 6px; gap: 8px; flex-wrap: wrap; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--texto-3); font-size: 11px; }
+  .vazio { color: var(--texto-3); font-size: 14px; padding: 30px 0; text-align: center; }
+  ul.lista { list-style: none; margin: 0; padding: 0; background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; }
+  ul.lista li { padding: 11px 16px; border-top: 1px solid var(--borda); display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+  ul.lista li:first-child { border-top: 0; }
+  ul.lista .sub { color: var(--texto-2); }
+  .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
+  .token { max-width: 480px; margin: 60px auto; }
+  .token input { width: 100%; font: inherit; padding: 12px; border-radius: 12px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); margin: 10px 0; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script>
+// ======== Preencha (os mesmos valores do ConfigNuvem.java) ========
+const SUPABASE_URL  = "https://ajifsgllahlvuscnarus.supabase.co";
+const CHAVE_PUBLICA = "sb_publishable_GCwfL1vBgBE-8a8FNkcc-g_ZOtWtWaf";
+// ===================================================================
+
+const app = document.getElementById("app");
+const fmtHora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const fmtDataHora = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const num1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+let token = null, janelaMin = 60, dados = null, timer = null, falhas = 0, pedindo = false;
+
+function lerToken() {
+  const m = location.hash.match(/[#&]t=([0-9a-f]{32,})/i);
+  if (m) { try { localStorage.setItem("aegis_token_painel", m[1]); } catch (e) {} return m[1]; }
+  try { return localStorage.getItem("aegis_token_painel"); } catch (e) { return null; }
+}
+
+async function rpc(fn, args) {
+  const h = { "Content-Type": "application/json", "apikey": CHAVE_PUBLICA };
+  if (CHAVE_PUBLICA.startsWith("eyJ")) h["Authorization"] = "Bearer " + CHAVE_PUBLICA;
+  const r = await fetch(SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/rpc/" + fn, { method: "POST", headers: h, body: JSON.stringify(args) });
+  const txt = await r.text();
+  if (!r.ok) { let m = txt; try { m = JSON.parse(txt).message || txt; } catch (e) {} throw new Error(m); }
+  return txt ? JSON.parse(txt) : null;
+}
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function ha(seg) {
+  if (seg == null) return "";
+  if (seg < 60) return "há " + seg + " s";
+  if (seg < 3600) return "há " + Math.round(seg / 60) + " min";
+  if (seg < 86400) return "há " + Math.round(seg / 3600) + " h";
+  return "há " + Math.round(seg / 86400) + " dias";
+}
+function segDesde(iso) { return iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000)) : null; }
+
+// ---------- Tela do token ----------
+function telaToken(erro) {
+  app.innerHTML = `
+    <div class="token cartao">
+      <div class="rot">Aegis · Painel (protótipo)</div>
+      <h2 style="margin:6px 0 4px">Código de acesso</h2>
+      <div class="msg">Cole o <b>token_painel</b> que apareceu no fim do script do Supabase.</div>
+      <input id="tk" autocomplete="off" spellcheck="false" placeholder="ex.: c4d671d34f09…">
+      ${erro ? `<div class="msg erro" style="margin-bottom:10px">${esc(erro)}</div>` : ""}
+      <button class="botao" id="ok">Entrar</button>
+    </div>`;
+  document.getElementById("ok").onclick = () => {
+    const v = document.getElementById("tk").value.trim();
+    if (!/^[0-9a-f]{32,}$/i.test(v)) return telaToken("O código tem só letras a–f e números (64 caracteres).");
+    try { localStorage.setItem("aegis_token_painel", v); } catch (e) {}
+    token = v; iniciar();
+  };
+}
+
+// ---------- Painel ----------
+function esqueleto() {
+  app.innerHTML = `
+    <header>
+      <div class="marca">Aegis · acompanhamento remoto</div>
+      <h1 id="nome">…</h1>
+      <div class="pilula"><span class="ponto" id="ponto"></span><span id="estado">Carregando…</span></div>
+    </header>
+
+    <h2>Últimos sinais</h2>
+    <div class="grade" id="cartoes"></div>
+    <div class="quando" id="quando"></div>
+
+    <div class="acao">
+      <div class="linha">
+        <button class="botao" id="medir">Medir agora</button>
+        <select id="duracao" aria-label="Duração da medição">
+          <option value="30">30 s</option><option value="60">60 s</option><option value="15">15 s</option>
+        </select>
+        <span class="msg" id="msgMedir">O celular liga os sensores do relógio e envia os valores.</span>
+      </div>
+      <div class="barra" id="barra"><div></div></div>
+    </div>
+
+    <h2>Frequência cardíaca</h2>
+    <div class="grafico">
+      <div class="topo">
+        <span class="msg" id="resumoFc"></span>
+        <div class="seg" id="janela">
+          <button data-min="60" aria-pressed="true">1 h</button>
+          <button data-min="360" aria-pressed="false">6 h</button>
+          <button data-min="1440" aria-pressed="false">24 h</button>
+        </div>
+      </div>
+      <div id="svg"></div>
+    </div>
+
+    <h2>Coletas recentes</h2>
+    <ul class="lista" id="sessoes"></ul>
+
+    <div class="aviso">
+      <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
+      A <b>pressão arterial é uma estimativa do relógio</b> (sem manguito) e não deve orientar nenhuma decisão.
+      Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
+    </div>`;
+  document.getElementById("medir").onclick = pedirMedicao;
+  document.querySelectorAll("#janela button").forEach(b => b.onclick = () => {
+    janelaMin = +b.dataset.min;
+    document.querySelectorAll("#janela button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    atualizar();
+  });
+}
+
+function cartao(rot, val, un, selo) {
+  return `<div class="cartao"><div class="rot">${rot}${selo ? ` <span class="selo">${selo}</span>` : ""}</div>
+          <div class="val">${val ?? "—"}${val != null && un ? `<small>${un}</small>` : ""}</div></div>`;
+}
+
+function desenhar() {
+  const d = dados;
+  document.getElementById("nome").textContent = d.paciente || "Paciente";
+
+  // Status do celular
+  const s = d.status, ponto = document.getElementById("ponto"), est = document.getElementById("estado");
+  if (!s) { ponto.className = "ponto"; est.textContent = "O celular ainda não se conectou à nuvem."; }
+  else if (s.segundos_atras > 45) { ponto.className = "ponto erro"; est.textContent = `Celular fora do ar (último contato ${ha(s.segundos_atras)})`; }
+  else if (s.conexao !== "CONECTADO") { ponto.className = "ponto alerta"; est.textContent = `Celular online · relógio ${s.conexao === "RECONECTANDO" ? "reconectando" : "desconectado"}`; }
+  else { ponto.className = "ponto ok"; est.textContent = `Celular online · relógio conectado${s.sensor ? " · gravando " + s.sensor : ""}`; }
+
+  // Cartões com a última leitura
+  const u = d.ultima_leitura;
+  document.getElementById("cartoes").innerHTML = u ? [
+    cartao("Freq. cardíaca", u.fc, "bpm"),
+    cartao("SpO₂", u.spo2, "%"),
+    cartao("Pressão (mmHg)", u.pas && u.pad ? `${u.pas}/${u.pad}` : null, "", "estimativa"),
+    cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C"),
+    cartao("Respiração", u.resp, "/min"),
+  ].join("") : `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
+  document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
+
+  desenharComando(d.comandos[0]);
+  desenharGrafico(d.leituras);
+
+  document.getElementById("sessoes").innerHTML = d.sessoes.length ? d.sessoes.map(x => `
+    <li><span>${esc(x.sensor)}${x.duracao_s != null ? ` · ${Math.round(x.duracao_s)} s` : ""}<br><span class="sub">${esc(x.motivo_fim || "")}</span></span>
+        <span class="sub" style="text-align:right">${fmtDataHora.format(new Date(x.recebido_em))}${x.quedas_conexao ? `<br>${x.quedas_conexao} ${x.quedas_conexao == 1 ? "queda" : "quedas"} de conexão` : ""}</span></li>`).join("")
+    : `<li class="sub">Nenhuma coleta enviada ainda.</li>`;
+}
+
+function desenharComando(c) {
+  const bt = document.getElementById("medir"), msg = document.getElementById("msgMedir"), barra = document.getElementById("barra");
+  msg.className = "msg"; barra.style.display = "none"; bt.disabled = pedindo;
+  if (!c) return;
+  const recente = segDesde(c.concluido_em || c.criado_em) < 600;
+  if (c.estado === "pendente") {
+    bt.disabled = true; msg.textContent = `Pedido enviado ${ha(segDesde(c.criado_em))}. Aguardando o celular…`;
+  } else if (c.estado === "executando") {
+    bt.disabled = true;
+    const passou = segDesde(c.iniciado_em), total = c.duracao_s + 3;
+    msg.textContent = `Medindo… ${Math.max(0, total - passou)} s restantes. Peça para manter o braço parado.`;
+    barra.style.display = "block"; barra.firstElementChild.style.width = Math.min(100, 100 * passou / total) + "%";
+  } else if (c.estado === "concluido" && recente) {
+    const r = c.resultado || {};
+    msg.className = "msg ok";
+    msg.textContent = `Medição de ${fmtHora.format(new Date(c.concluido_em))}: FC ${r.fc_mediana ?? "—"} bpm`
+      + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : "") + `, SpO₂ ${r.spo2_mediana ?? "—"}%`
+      + (r.pas_mediana ? `, PA ${r.pas_mediana}/${r.pad_mediana} (estimativa)` : "") + ` · ${r.n} leituras.`;
+  } else if ((c.estado === "erro" || c.estado === "expirado") && recente) {
+    msg.className = "msg erro"; msg.textContent = `Não foi possível medir: ${c.erro || c.estado}.`;
+  }
+}
+
+function desenharGrafico(ls) {
+  const alvo = document.getElementById("svg"), resumo = document.getElementById("resumoFc");
+  const pts = ls.filter(l => l.fc).map(l => ({ t: new Date(l.medido_em).getTime(), v: l.fc }));
+  if (pts.length < 2) { alvo.innerHTML = `<div class="vazio">Sem dados de FC nesta janela.</div>`; resumo.textContent = ""; return; }
+  const vs = pts.map(p => p.v).sort((a, b) => a - b);
+  resumo.textContent = `mín. ${vs[0]} · mediana ${vs[vs.length >> 1]} · máx. ${vs[vs.length - 1]} bpm`;
+  const W = Math.max(300, alvo.clientWidth || 700), H = W < 500 ? 200 : 220, m = { l: 34, r: 10, t: 10, b: 24 };
+  const t1 = Date.now(), t0 = t1 - janelaMin * 60000;
+  const lo = Math.min(50, Math.floor((vs[0] - 5) / 10) * 10), hi = Math.max(110, Math.ceil((vs[vs.length - 1] + 5) / 10) * 10);
+  const x = t => m.l + (t - t0) / (t1 - t0) * (W - m.l - m.r), y = v => m.t + (hi - v) / (hi - lo) * (H - m.t - m.b);
+  let g = "";
+  for (let v = lo; v <= hi; v += (hi - lo > 80 ? 20 : 10)) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grade)"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  for (let i = 0; i <= 4; i++) { const t = t0 + i * (t1 - t0) / 4; g += `<text x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === 4 ? "end" : "middle"}">${fmtHora.format(new Date(t))}</text>`; }
+  // quebra a linha onde há buraco > 2 min (medições separadas)
+  let d = "", ant = null;
+  for (const p of pts) { d += (ant && p.t - ant.t < 120000 ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1); ant = p; }
+  const isolados = pts.filter((p, i) => (i === 0 || p.t - pts[i - 1].t >= 120000) && (i === pts.length - 1 || pts[i + 1].t - p.t >= 120000))
+    .map(p => `<circle cx="${x(p.t)}" cy="${y(p.v)}" r="2.5" fill="var(--linha)"/>`).join("");
+  alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Frequência cardíaca na última janela">${g}
+    <path d="${d}" fill="none" stroke="var(--linha)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${isolados}</svg>`;
+}
+
+async function pedirMedicao() {
+  pedindo = true; document.getElementById("medir").disabled = true;
+  try {
+    await rpc("painel_pedir_medicao", { p_token: token, p_duracao_s: +document.getElementById("duracao").value });
+  } catch (e) {
+    const msg = document.getElementById("msgMedir"); msg.className = "msg erro"; msg.textContent = "Falha ao pedir: " + e.message;
+  }
+  pedindo = false; atualizar();
+}
+
+async function atualizar() {
+  clearTimeout(timer);
+  try {
+    dados = await rpc("painel_dados", { p_token: token, p_minutos: janelaMin });
+    falhas = 0; desenhar();
+  } catch (e) {
+    if (/token/i.test(e.message)) { try { localStorage.removeItem("aegis_token_painel"); } catch (x) {} return telaToken("Código inválido. Confira o token_painel."); }
+    falhas++;
+    document.getElementById("estado").textContent = "Sem conexão com a nuvem (" + e.message + "). Tentando de novo…";
+    document.getElementById("ponto").className = "ponto erro";
+  }
+  const ativo = dados && dados.comandos[0] && ["pendente", "executando"].includes(dados.comandos[0].estado);
+  timer = setTimeout(atualizar, ativo ? 2000 : Math.min(30000, 10000 * (1 + falhas)));
+}
+
+function iniciar() { esqueleto(); atualizar(); }
+
+if (SUPABASE_URL.includes("COLE_AQUI") || CHAVE_PUBLICA.includes("COLE_AQUI")) {
+  app.innerHTML = `<div class="token cartao"><h2 style="margin-top:0">Falta configurar</h2>
+    <div class="msg">Abra este arquivo num editor de texto e preencha <b>SUPABASE_URL</b> e <b>CHAVE_PUBLICA</b> (os mesmos do ConfigNuvem.java do app).</div></div>`;
+} else {
+  token = lerToken();
+  token ? iniciar() : telaToken();
+}
+</script>
+</body>
+</html>

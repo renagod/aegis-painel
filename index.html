@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aegis · Painel</title>
 <!--
-  Painel do familiar / equipe — PROTÓTIPO (28/10/2026). Ver LEIA-ME.md.
+  Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição). Ver LEIA-ME.md.
   1. Preencha SUPABASE_URL e CHAVE_PUBLICA abaixo (os mesmos do ConfigNuvem.java do app).
   2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
      (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
@@ -74,6 +74,34 @@
   ul.lista li:first-child { border-top: 0; }
   ul.lista .sub { color: var(--texto-2); }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
+  .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
+  .modos { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .modo { position: relative; }
+  .modo input { position: absolute; opacity: 0; pointer-events: none; }
+  .modo label { display: block; height: 100%; padding: 10px 40px 10px 12px; border: 1px solid var(--borda); border-radius: 12px;
+                background: var(--superficie); cursor: pointer; }
+  .modo label:hover { border-color: var(--primaria); }
+  .modo input:checked + label { border-color: var(--primaria); background: var(--superficie-alta); box-shadow: inset 0 0 0 1px var(--primaria); }
+  .modo input:focus-visible + label { outline: 2px solid var(--primaria); outline-offset: 2px; }
+  .modo input:disabled + label { opacity: .55; cursor: default; }
+  .modo .nome { display: block; font-weight: 600; font-size: 14.5px; }
+  .modo .curto { display: block; font-size: 12.5px; color: var(--texto-2); margin-top: 1px; }
+  .modo .vivo { display: inline-block; font-size: 10.5px; font-weight: 600; letter-spacing: .03em; color: var(--ok);
+                margin-left: 6px; vertical-align: 1px; }
+  .modo .atencao { color: var(--alerta); }
+  .info { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; padding: 0; border-radius: 50%;
+          background: var(--superficie-alta); color: var(--texto-2); font-weight: 700; font-size: 13px; line-height: 26px; }
+  .info:hover { background: var(--primaria); color: #fff; }
+  dialog { border: 1px solid var(--borda); border-radius: 18px; padding: 0; max-width: 460px; width: calc(100% - 32px);
+           background: var(--superficie); color: var(--texto); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+  dialog::backdrop { background: rgba(8, 14, 28, .55); }
+  dialog .corpo { padding: 20px 22px 8px; }
+  dialog h3 { margin: 0; font-size: 19px; }
+  dialog .tec { font-size: 12.5px; color: var(--texto-3); margin: 2px 0 12px; font-variant-numeric: tabular-nums; }
+  dialog h4 { margin: 14px 0 3px; font-size: 13px; color: var(--texto-2); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  dialog p { margin: 0; font-size: 14.5px; }
+  dialog .rodape { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px 18px; }
+  .secundario { background: var(--superficie-alta); color: var(--texto); }
   .token { max-width: 480px; margin: 60px auto; }
   .token input { width: 100%; font: inherit; padding: 12px; border-radius: 12px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); margin: 10px 0; }
 </style>
@@ -118,6 +146,107 @@ function ha(seg) {
 }
 function segDesde(iso) { return iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000)) : null; }
 
+// ---------- Modos de medição (o mesmo nome que o app entende em Nuvem.sensorPedido) ----------
+const RESUMO_BRUTO = "Só um resumo no fim: duração, amostras por segundo, perdas e o nome do arquivo. O sinal fica gravado no celular e vai para o Drive pelo Autosync.";
+const MODOS = {
+  VITAIS: {
+    nome: "Sinais vitais", curto: "FC e SpO₂ calculados pelo relógio", vivo: true, tec: "Comando 0x64 · 1 leitura por segundo",
+    mede: "O próprio relógio calcula frequência cardíaca, SpO₂, temperatura e respiração e manda os números prontos, uma vez por segundo.",
+    uso: "Braço parado e apoiado. A FC muda em degraus porque o relógio recalcula a cada 3–6 s. A SpO₂ costuma vir vazia; quando vem, aparece no cartão.",
+    painel: "Os valores aparecem nos cartões e no gráfico enquanto a medição acontece; no fim, as medianas.",
+    instr: "Peça para manter o braço parado."
+  },
+  PPG_ACC: {
+    nome: "PPG + acelerômetro", curto: "Pulso óptico, 25 Hz · base da validação", tec: "Modo 4 · 25 amostras por segundo",
+    mede: "O sinal bruto do sensor óptico (o pulso visto pela luz verde) junto com o acelerômetro. Dele o nosso código calcula FC, variabilidade (PRV) e frequência respiratória, com métodos publicados. É o modo da validação em repouso com a Polar H10.",
+    uso: "Sentado, braço apoiado, sem tocar no relógio. Os primeiros 30–40 s são descartados na análise, então prefira 90 s.",
+    painel: RESUMO_BRUTO, instr: "Peça para ficar sentado, braço apoiado, sem tocar no relógio."
+  },
+  PPG: {
+    nome: "PPG", curto: "Só o pulso óptico, 25 Hz", tec: "Modo 1 · 25 amostras por segundo",
+    mede: "Só o sinal do sensor óptico, sem acelerômetro. Foi o primeiro modo usado no projeto.",
+    uso: "Para análise, prefira o PPG + acelerômetro: é o mesmo pulso e ainda mostra se o braço mexeu.",
+    painel: RESUMO_BRUTO, instr: "Peça para manter o braço parado."
+  },
+  IMU: {
+    nome: "IMU", curto: "Acelerômetro + giroscópio, 25 Hz", tec: "Modo 5 · 25 amostras por segundo",
+    mede: "O movimento do pulso em 6 eixos (aceleração e rotação), com o horário do próprio relógio em cada amostra.",
+    uso: "Serve para postura e repouso. Para marcha e quedas é lento demais: use a IMU rápida.",
+    painel: RESUMO_BRUTO, instr: ""
+  },
+  IMU_RAPIDA: {
+    nome: "IMU rápida", curto: "Movimento ~190 Hz · marcha e quedas", tec: "Modo 8 · ~190 amostras por segundo",
+    mede: "Os mesmos 6 eixos da IMU, cerca de 8 vezes mais rápido. É o modo pensado para marcha, testes de mobilidade e quedas.",
+    uso: "A pessoa pode se mexer normalmente. É normal perder cerca de 3% das amostras, em trechos curtos.",
+    painel: RESUMO_BRUTO, instr: "A pessoa pode se mexer normalmente."
+  },
+  IMU_RAPIDA_V: {
+    nome: "IMU rápida + FC", curto: "Movimento ~190 Hz com FC", vivo: true, tec: "Modo 8 + comando 0x64",
+    mede: "A IMU rápida e, junto, os sinais vitais do relógio a cada segundo.",
+    uso: "A pessoa pode se mexer normalmente. Neste modo o relógio não manda SpO₂, só FC.",
+    painel: "A FC aparece no gráfico durante a medição; no fim, o resumo da IMU (amostras por segundo, perdas, arquivo) e a FC mediana.",
+    instr: "A pessoa pode se mexer normalmente."
+  },
+  ECG: {
+    nome: "ECG", curto: "Precisa abrir o ECG no relógio", atencao: true, tec: "Modo 6 · ~481 amostras por segundo",
+    mede: "Eletrocardiograma de uma derivação, medido entre o pulso e o dedo da outra mão encostado no relógio.",
+    uso: "O relógio só começa o ECG quando alguém abre o ECG no menu do próprio relógio e encosta o dedo no sensor. O celular fica pronto para gravar; se ninguém abrir o menu, a medição termina sem dados.",
+    painel: RESUMO_BRUTO, instr: "Peça para abrir o ECG no menu do relógio e encostar o dedo."
+  },
+};
+let modo = "VITAIS";
+
+function lerPref(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function gravarPref(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function montarModos() {
+  const salvo = lerPref("aegis_modo");
+  if (MODOS[salvo]) modo = salvo;
+  document.getElementById("modos").innerHTML = Object.entries(MODOS).map(([id, m]) => `
+    <div class="modo">
+      <input type="radio" name="modo" id="m_${id}" value="${id}" ${id === modo ? "checked" : ""}>
+      <label for="m_${id}"><span class="nome">${m.nome}${m.vivo ? `<span class="vivo">● AO VIVO</span>` : ""}</span>
+        <span class="curto${m.atencao ? " atencao" : ""}">${m.curto}</span></label>
+      <button class="info" type="button" data-modo="${id}" aria-label="Sobre o modo ${m.nome}" title="Sobre este modo">?</button>
+    </div>`).join("");
+  document.querySelectorAll('#modos input').forEach(r => r.onchange = () => escolherModo(r.value));
+  document.querySelectorAll('#modos .info').forEach(b => b.onclick = () => abrirModo(b.dataset.modo));
+  const dlg = document.getElementById("dlg");
+  document.getElementById("dlgFechar").onclick = () => dlg.close();
+  document.getElementById("dlgEscolher").onclick = () => { escolherModo(dlg.dataset.modo); dlg.close(); };
+  dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });   // clicar fora fecha
+  textoPadrao();
+}
+
+function escolherModo(id) {
+  if (!MODOS[id]) return;
+  modo = id; gravarPref("aegis_modo", id);
+  const r = document.getElementById("m_" + id); if (r) r.checked = true;
+  textoPadrao();
+}
+
+function abrirModo(id) {
+  const m = MODOS[id], dlg = document.getElementById("dlg");
+  dlg.dataset.modo = id;
+  document.getElementById("dlgTitulo").textContent = m.nome;
+  document.getElementById("dlgTec").textContent = m.tec;
+  document.getElementById("dlgMede").textContent = m.mede;
+  document.getElementById("dlgUso").textContent = m.uso;
+  document.getElementById("dlgPainel").textContent = m.painel;
+  document.getElementById("dlgEscolher").style.display = id === modo ? "none" : "";
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+}
+
+/** Texto ao lado do botão quando não há medição recente para mostrar. */
+function textoPadrao() {
+  const msg = document.getElementById("msgMedir");
+  if (!msg || msg.dataset.ocupado === "1") return;
+  msg.className = "msg";
+  msg.textContent = MODOS[modo].vivo ? "O celular liga o relógio e os valores aparecem aqui ao vivo."
+    : modo === "ECG" ? "Alguém precisa abrir o ECG no menu do relógio."
+    : "O celular grava o sinal do relógio; aqui aparece o resumo no fim.";
+}
+
 // ---------- Tela do token ----------
 function telaToken(erro) {
   app.innerHTML = `
@@ -151,15 +280,31 @@ function esqueleto() {
     <div class="quando" id="quando"></div>
 
     <div class="acao">
+      <div class="rotulo">Modo de medição</div>
+      <div class="modos" id="modos" role="radiogroup" aria-label="Modo de medição"></div>
       <div class="linha">
         <button class="botao" id="medir">Medir agora</button>
         <select id="duracao" aria-label="Duração da medição">
-          <option value="30">30 s</option><option value="60">60 s</option><option value="15">15 s</option>
+          <option value="30">30 s</option><option value="60" selected>60 s</option><option value="90">90 s</option>
         </select>
-        <span class="msg" id="msgMedir">O celular liga os sensores do relógio e envia os valores.</span>
+        <span class="msg" id="msgMedir"></span>
       </div>
       <div class="barra" id="barra"><div></div></div>
     </div>
+
+    <dialog id="dlg" aria-labelledby="dlgTitulo">
+      <div class="corpo">
+        <h3 id="dlgTitulo"></h3>
+        <div class="tec" id="dlgTec"></div>
+        <h4>O que mede</h4><p id="dlgMede"></p>
+        <h4>Como usar</h4><p id="dlgUso"></p>
+        <h4>O que aparece aqui</h4><p id="dlgPainel"></p>
+      </div>
+      <div class="rodape">
+        <button class="secundario" id="dlgFechar">Fechar</button>
+        <button class="botao" id="dlgEscolher">Usar este modo</button>
+      </div>
+    </dialog>
 
     <h2>Frequência cardíaca</h2>
     <div class="grafico">
@@ -179,10 +324,15 @@ function esqueleto() {
 
     <div class="aviso">
       <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
-      A <b>pressão arterial é uma estimativa do relógio</b> (sem manguito) e não deve orientar nenhuma decisão.
+      A <b>pressão arterial não é mostrada</b>: nos testes, o relógio mandou sempre 120/80 com uma pequena variação sorteada,
+      sem medir de fato. A respiração do modo “Sinais vitais” também é uma estimativa do relógio (a FC dividida por 4).
       Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
+  montarModos();
+  const dur = lerPref("aegis_duracao");
+  if (["30", "60", "90"].includes(dur)) document.getElementById("duracao").value = dur;
+  document.getElementById("duracao").onchange = e => gravarPref("aegis_duracao", e.target.value);
   document.querySelectorAll("#janela button").forEach(b => b.onclick = () => {
     janelaMin = +b.dataset.min;
     document.querySelectorAll("#janela button").forEach(x => x.setAttribute("aria-pressed", x === b));
@@ -208,12 +358,13 @@ function desenhar() {
 
   // Cartões com a última leitura
   const u = d.ultima_leitura;
+  // SpO2: o relógio quase sempre manda 0 (vira null no banco). Mostra a última que veio de verdade na janela.
+  const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
   document.getElementById("cartoes").innerHTML = u ? [
     cartao("Freq. cardíaca", u.fc, "bpm"),
-    cartao("SpO₂", u.spo2, "%"),
-    cartao("Pressão (mmHg)", u.pas && u.pad ? `${u.pas}/${u.pad}` : null, "", "estimativa"),
+    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", comSpo2 === u ? "" : ha(segDesde(comSpo2.medido_em))) : "",
     cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C"),
-    cartao("Respiração", u.resp, "/min"),
+    cartao("Respiração", u.resp, "/min", "estimada"),
   ].join("") : `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
   document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
 
@@ -228,25 +379,47 @@ function desenhar() {
 
 function desenharComando(c) {
   const bt = document.getElementById("medir"), msg = document.getElementById("msgMedir"), barra = document.getElementById("barra");
-  msg.className = "msg"; barra.style.display = "none"; bt.disabled = pedindo;
-  if (!c) return;
+  const ocupado = c && ["pendente", "executando"].includes(c.estado);
+  msg.className = "msg"; msg.dataset.ocupado = "0"; barra.style.display = "none"; bt.disabled = pedindo || ocupado;
+  document.querySelectorAll("#modos input").forEach(r => r.disabled = ocupado);
+  if (!c) return textoPadrao();
+  const m = MODOS[c.sensor || "VITAIS"] || { nome: c.sensor, instr: "" };
   const recente = segDesde(c.concluido_em || c.criado_em) < 600;
+  msg.dataset.ocupado = "1";
   if (c.estado === "pendente") {
-    bt.disabled = true; msg.textContent = `Pedido enviado ${ha(segDesde(c.criado_em))}. Aguardando o celular…`;
+    msg.textContent = `${m.nome}: pedido enviado ${ha(segDesde(c.criado_em))}. Aguardando o celular…`;
   } else if (c.estado === "executando") {
-    bt.disabled = true;
     const passou = segDesde(c.iniciado_em), total = c.duracao_s + 3;
-    msg.textContent = `Medindo… ${Math.max(0, total - passou)} s restantes. Peça para manter o braço parado.`;
+    msg.textContent = `Medindo ${m.nome}… ${Math.max(0, total - passou)} s restantes. ${m.instr}`;
     barra.style.display = "block"; barra.firstElementChild.style.width = Math.min(100, 100 * passou / total) + "%";
   } else if (c.estado === "concluido" && recente) {
-    const r = c.resultado || {};
     msg.className = "msg ok";
-    msg.textContent = `Medição de ${fmtHora.format(new Date(c.concluido_em))}: FC ${r.fc_mediana ?? "—"} bpm`
-      + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : "") + `, SpO₂ ${r.spo2_mediana ?? "—"}%`
-      + (r.pas_mediana ? `, PA ${r.pas_mediana}/${r.pad_mediana} (estimativa)` : "") + ` · ${r.n} leituras.`;
+    msg.innerHTML = resumoResultado(c, m);
   } else if ((c.estado === "erro" || c.estado === "expirado") && recente) {
-    msg.className = "msg erro"; msg.textContent = `Não foi possível medir: ${c.erro || c.estado}.`;
+    msg.className = "msg erro"; msg.textContent = `${m.nome}: não foi possível medir — ${c.erro || c.estado}.`;
+  } else {
+    msg.dataset.ocupado = "0"; textoPadrao();
   }
+}
+
+/** Frase do fim da medição: medianas dos vitais e/ou o resumo da coleta bruta. */
+function resumoResultado(c, m) {
+  const r = c.resultado || {}, hora = fmtHora.format(new Date(c.concluido_em)), partes = [];
+  if (r.fc_mediana != null) partes.push(`FC ${r.fc_mediana} bpm` + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : ""));
+  if (r.spo2_mediana) partes.push(`SpO₂ ${r.spo2_mediana}%`);
+  const bruto = (c.sensor || "VITAIS") !== "VITAIS";
+  if (bruto) {
+    if (r.duracao_s != null) partes.push(`${r.duracao_s} s gravados`);
+    const taxa = r.imu_taxa_relogio_hz ?? r.ecg_amostras_s ?? r.amostras_s;
+    if (taxa != null) partes.push(`${num1.format(taxa)} amostras/s`);
+    if (r.imu_perda_pct != null) partes.push(`perda ${num1.format(r.imu_perda_pct)}%`);
+    else if (r.falhas_sequencia) partes.push(`${r.falhas_sequencia} ${r.falhas_sequencia == 1 ? "falha" : "falhas"} de sequência`);
+  } else if (r.n != null) partes.push(`${r.n} leituras`);
+  if (r.quedas_conexao) partes.push(`${r.quedas_conexao} ${r.quedas_conexao == 1 ? "queda" : "quedas"} de conexão`);
+  let t = `${esc(m.nome)} de ${hora}: ${esc(partes.join(", ") || "concluída")}.`;
+  if (r.aviso) t += ` <span style="color:var(--alerta)">Atenção: ${esc(r.aviso)}.</span>`;
+  if (bruto && r.arquivo) t += `<br><span class="sub" style="color:var(--texto-2)">Arquivo no celular: ${esc(r.arquivo)}</span>`;
+  return t;
 }
 
 function desenharGrafico(ls) {
@@ -274,7 +447,7 @@ function desenharGrafico(ls) {
 async function pedirMedicao() {
   pedindo = true; document.getElementById("medir").disabled = true;
   try {
-    await rpc("painel_pedir_medicao", { p_token: token, p_duracao_s: +document.getElementById("duracao").value });
+    await rpc("painel_pedir_medicao", { p_token: token, p_duracao_s: +document.getElementById("duracao").value, p_sensor: modo });
   } catch (e) {
     const msg = document.getElementById("msgMedir"); msg.className = "msg erro"; msg.textContent = "Falha ao pedir: " + e.message;
   }

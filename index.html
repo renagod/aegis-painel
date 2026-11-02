@@ -150,9 +150,9 @@ function segDesde(iso) { return iso ? Math.max(0, Math.round((Date.now() - new D
 const RESUMO_BRUTO = "Só um resumo no fim: duração, amostras por segundo, perdas e o nome do arquivo. O sinal fica gravado no celular e vai para o Drive pelo Autosync.";
 const MODOS = {
   VITAIS: {
-    nome: "Sinais vitais", curto: "FC e SpO₂ calculados pelo relógio", vivo: true, tec: "Comando 0x64 · 1 leitura por segundo",
-    mede: "O próprio relógio calcula frequência cardíaca, SpO₂, temperatura e respiração e manda os números prontos, uma vez por segundo.",
-    uso: "Braço parado e apoiado. A FC muda em degraus porque o relógio recalcula a cada 3–6 s. A SpO₂ costuma vir vazia; quando vem, aparece no cartão.",
+    nome: "Sinais vitais", curto: "FC do relógio; SpO₂ = última medida no relógio", vivo: true, tec: "Comando 0x64 · 1 leitura por segundo",
+    mede: "O próprio relógio calcula frequência cardíaca, temperatura e respiração e manda os números prontos, uma vez por segundo. A SpO₂ não é medida nessa hora: o relógio só repassa o último valor medido no menu Blood Oxygen dele.",
+    uso: "Braço parado e apoiado. A FC muda em degraus porque o relógio recalcula a cada 3–6 s. Para ter SpO₂, peça para a pessoa medir antes no menu Blood Oxygen do relógio e esperar o resultado; esse valor aparece no cartão (fica igual durante toda a medição). Sem isso, a SpO₂ vem vazia.",
     painel: "Os valores aparecem nos cartões e no gráfico enquanto a medição acontece; no fim, as medianas.",
     instr: "Peça para manter o braço parado."
   },
@@ -325,7 +325,7 @@ function esqueleto() {
     <div class="aviso">
       <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
       A <b>pressão arterial não é mostrada</b>: nos testes, o relógio mandou sempre 120/80 com uma pequena variação sorteada,
-      sem medir de fato. A respiração do modo “Sinais vitais” também é uma estimativa do relógio (a FC dividida por 4).
+      sem medir de fato. A respiração do modo “Sinais vitais” também é uma estimativa do relógio (a FC dividida por 4). A <b>SpO₂ não é medida na hora</b>: é o último valor que o relógio mediu no menu Blood Oxygen, sem o horário dessa medida.
       Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
@@ -358,11 +358,11 @@ function desenhar() {
 
   // Cartões com a última leitura
   const u = d.ultima_leitura;
-  // SpO2: o relógio quase sempre manda 0 (vira null no banco). Mostra a última que veio de verdade na janela.
+  // SpO2: o 0x64 só repassa a última SpO2 medida no menu Blood Oxygen do relógio (02/11); sem ela vem 0 (null no banco).
   const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
   document.getElementById("cartoes").innerHTML = u ? [
     cartao("Freq. cardíaca", u.fc, "bpm"),
-    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", comSpo2 === u ? "" : ha(segDesde(comSpo2.medido_em))) : "",
+    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? "" : " · " + ha(segDesde(comSpo2.medido_em)))) : "",
     cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C"),
     cartao("Respiração", u.resp, "/min", "estimada"),
   ].join("") : `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
@@ -406,7 +406,7 @@ function desenharComando(c) {
 function resumoResultado(c, m) {
   const r = c.resultado || {}, hora = fmtHora.format(new Date(c.concluido_em)), partes = [];
   if (r.fc_mediana != null) partes.push(`FC ${r.fc_mediana} bpm` + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : ""));
-  if (r.spo2_mediana) partes.push(`SpO₂ ${r.spo2_mediana}%`);
+  if (r.spo2_mediana) partes.push(`SpO₂ ${r.spo2_mediana}% (última medida no relógio)`);
   const bruto = (c.sensor || "VITAIS") !== "VITAIS";
   if (bruto) {
     if (r.duracao_s != null) partes.push(`${r.duracao_s} s gravados`);

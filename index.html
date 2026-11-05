@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aegis · Painel</title>
 <!--
-  Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição). Ver LEIA-ME.md.
+  Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição; 05/11: cinta Polar H10). Ver LEIA-ME.md.
   1. Preencha SUPABASE_URL e CHAVE_PUBLICA abaixo (os mesmos do ConfigNuvem.java do app).
   2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
      (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
@@ -16,21 +16,21 @@
     --fundo: #F3F6FB; --superficie: #FFFFFF; --superficie-alta: #EAF0F9; --borda: #DCE4F1;
     --texto: #0E1A2F; --texto-2: #5A6A86; --texto-3: #8A98B2;
     --primaria: #1D5BD8; --primaria-2: #164AB4; --painel: #0F3A8F;
-    --ok: #12A363; --alerta: #C98A06; --perigo: #D93A3A; --linha: #1D5BD8; --grade: #E3E9F3;
+    --ok: #12A363; --alerta: #C98A06; --perigo: #D93A3A; --linha: #1D5BD8; --grade: #E3E9F3; --h10: #D46F00;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --fundo: #0B1220; --superficie: #131C2E; --superficie-alta: #1A2540; --borda: #26324D;
       --texto: #E8EEF9; --texto-2: #9AA9C4; --texto-3: #6D7C99;
       --primaria: #5B8CFF; --primaria-2: #7AA2FF; --painel: #10234D;
-      --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42;
+      --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42; --h10: #FFAA4D;
     }
   }
   :root[data-theme="dark"] {
     --fundo: #0B1220; --superficie: #131C2E; --superficie-alta: #1A2540; --borda: #26324D;
     --texto: #E8EEF9; --texto-2: #9AA9C4; --texto-3: #6D7C99;
     --primaria: #5B8CFF; --primaria-2: #7AA2FF; --painel: #10234D;
-    --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42;
+    --ok: #3DD68C; --alerta: #F2BE4B; --perigo: #FF6B6B; --linha: #7AA2FF; --grade: #1F2A42; --h10: #FFAA4D;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--fundo); color: var(--texto);
@@ -73,6 +73,9 @@
   ul.lista li { padding: 11px 16px; border-top: 1px solid var(--borda); display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
   ul.lista li:first-child { border-top: 0; }
   ul.lista .sub { color: var(--texto-2); }
+  .legenda { display: inline-flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--texto-2); }
+  .legenda i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  #h10linha { margin-top: 6px; }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
   .modos { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -188,8 +191,8 @@ const MODOS = {
     instr: "A pessoa pode se mexer normalmente."
   },
   ECG: {
-    nome: "ECG", curto: "Precisa abrir o ECG no relógio", atencao: true, tec: "Modo 6 · ~481 amostras por segundo",
-    mede: "Eletrocardiograma de uma derivação, medido entre o pulso e o dedo da outra mão encostado no relógio.",
+    nome: "ECG", curto: "Precisa abrir o ECG no relógio", atencao: true, tec: "Modo 6 · ~477–482 amostras por segundo (de 500)",
+    mede: "Eletrocardiograma de uma derivação, medido entre o pulso e o dedo da outra mão encostado no relógio. Nos testes com a cinta Polar H10 (04–05/11), a FC saiu certa, mas o relógio perde cerca de 4% do sinal no caminho: serve para FC, não para variabilidade.",
     uso: "O relógio só começa o ECG quando alguém abre o ECG no menu do próprio relógio e encosta o dedo no sensor. O celular fica pronto para gravar; se ninguém abrir o menu, a medição termina sem dados.",
     painel: RESUMO_BRUTO, instr: "Peça para abrir o ECG no menu do relógio e encostar o dedo."
   },
@@ -273,6 +276,7 @@ function esqueleto() {
       <div class="marca">Aegis · acompanhamento remoto</div>
       <h1 id="nome">…</h1>
       <div class="pilula"><span class="ponto" id="ponto"></span><span id="estado">Carregando…</span></div>
+      <div class="pilula" id="h10linha" style="display:none"><span class="ponto" id="h10ponto"></span><span id="h10estado"></span></div>
     </header>
 
     <h2>Últimos sinais</h2>
@@ -326,6 +330,7 @@ function esqueleto() {
       <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
       A <b>pressão arterial não é mostrada</b>: nos testes, o relógio mandou sempre 120/80 com uma pequena variação sorteada,
       sem medir de fato. A respiração do modo “Sinais vitais” também é uma estimativa do relógio (a FC dividida por 4). A <b>SpO₂ não é medida na hora</b>: é o último valor que o relógio mediu no menu Blood Oxygen, sem o horário dessa medida.
+      A <b>cinta Polar H10</b> (no peito) é o aparelho de referência da validação: a FC dela aparece em laranja quando a cinta está conectada ao celular.
       Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
@@ -356,25 +361,59 @@ function desenhar() {
   else if (s.conexao !== "CONECTADO") { ponto.className = "ponto alerta"; est.textContent = `Celular online · relógio ${s.conexao === "RECONECTANDO" ? "reconectando" : "desconectado"}`; }
   else { ponto.className = "ponto ok"; est.textContent = `Celular online · relógio conectado${s.sensor ? " · gravando " + s.sensor : ""}`; }
 
-  // Cartões com a última leitura
+  const h10 = desenharH10(s);
+
+  // Cartões com a última leitura (do relógio; a H10 tem o cartão dela)
   const u = d.ultima_leitura;
   // SpO2: o 0x64 só repassa a última SpO2 medida no menu Blood Oxygen do relógio (02/11); sem ela vem 0 (null no banco).
   const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
+  const cartaoH10 = h10 ? cartao("FC · cinta H10", h10.fc, "bpm", "referência") : "";
   document.getElementById("cartoes").innerHTML = u ? [
-    cartao("Freq. cardíaca", u.fc, "bpm"),
+    cartao("Freq. cardíaca", u.fc, "bpm", h10 ? "relógio" : ""),
+    cartaoH10,
     comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? "" : " · " + ha(segDesde(comSpo2.medido_em)))) : "",
     cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C"),
     cartao("Respiração", u.resp, "/min", "estimada"),
-  ].join("") : `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
+  ].join("") : cartaoH10 || `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
   document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
 
   desenharComando(d.comandos[0]);
   desenharGrafico(d.leituras);
 
   document.getElementById("sessoes").innerHTML = d.sessoes.length ? d.sessoes.map(x => `
-    <li><span>${esc(x.sensor)}${x.duracao_s != null ? ` · ${Math.round(x.duracao_s)} s` : ""}<br><span class="sub">${esc(x.motivo_fim || "")}</span></span>
+    <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
         <span class="sub" style="text-align:right">${fmtDataHora.format(new Date(x.recebido_em))}${x.quedas_conexao ? `<br>${x.quedas_conexao} ${x.quedas_conexao == 1 ? "queda" : "quedas"} de conexão` : ""}</span></li>`).join("")
     : `<li class="sub">Nenhuma coleta enviada ainda.</li>`;
+}
+
+function duracao(seg) {
+  seg = Math.round(seg);
+  return seg < 120 ? seg + " s" : Math.floor(seg / 60) + " min" + (seg % 60 ? " " + (seg % 60) + " s" : "");
+}
+
+/** Linha da cinta Polar H10 no cabeçalho (05/11). Devolve o estado dela se estiver ao vivo com FC, senão null. */
+function desenharH10(s) {
+  const linha = document.getElementById("h10linha"), ponto = document.getElementById("h10ponto"), est = document.getElementById("h10estado");
+  const h = s && s.h10, idade = s ? s.h10_segundos_atras : null;
+  // nunca conectou, ou desconectou há mais de 10 min, ou sem notícia há mais de 1 h: some
+  if (!h || idade == null || (h.estado === "DESCONECTADO" && idade > 600) || idade > 3600) { linha.style.display = "none"; return null; }
+  linha.style.display = "";
+  const vivo = idade <= 45 && s.segundos_atras <= 45;
+  if (!vivo) { ponto.className = "ponto"; est.textContent = `Cinta H10: sem notícia (último contato ${ha(idade)})`; return null; }
+  if (h.estado === "CONECTADO") {
+    const partes = ["Cinta H10 conectada"];
+    if (h.fc) partes.push(`FC ${h.fc} bpm`);
+    if (h.contato === 0) partes.push("sem contato com a pele");
+    if (h.bateria != null) partes.push(`bateria ${h.bateria}%`);
+    if (h.gravando) partes.push(`gravando ${h.gravando_s != null ? duracao(h.gravando_s + idade) : ""}${h.etapa ? " (" + h.etapa + ")" : ""}`.trim());
+    ponto.className = h.contato === 0 || !h.fc ? "ponto alerta" : "ponto ok";
+    est.textContent = partes.join(" · ");
+    return h.fc ? h : null;
+  }
+  if (h.estado === "DESCONECTADO") { ponto.className = "ponto"; est.textContent = "Cinta H10 desconectada"; return null; }
+  ponto.className = "ponto alerta";
+  est.textContent = "Cinta H10 " + ({ PROCURANDO: "procurando", CONECTANDO: "conectando", RECONECTANDO: "reconectando" }[h.estado] || String(h.estado).toLowerCase()) + "…";
+  return null;
 }
 
 function desenharComando(c) {
@@ -424,10 +463,17 @@ function resumoResultado(c, m) {
 
 function desenharGrafico(ls) {
   const alvo = document.getElementById("svg"), resumo = document.getElementById("resumoFc");
-  const pts = ls.filter(l => l.fc).map(l => ({ t: new Date(l.medido_em).getTime(), v: l.fc }));
-  if (pts.length < 2) { alvo.innerHTML = `<div class="vazio">Sem dados de FC nesta janela.</div>`; resumo.textContent = ""; return; }
-  const vs = pts.map(p => p.v).sort((a, b) => a - b);
-  resumo.textContent = `mín. ${vs[0]} · mediana ${vs[vs.length >> 1]} · máx. ${vs[vs.length - 1]} bpm`;
+  // Duas séries (05/11): o relógio (azul) e a cinta Polar H10 (laranja, referência)
+  const series = [
+    { nome: "relógio", cor: "var(--linha)", pts: ls.filter(l => l.fc && l.origem !== "H10") },
+    { nome: "cinta H10", cor: "var(--h10)", pts: ls.filter(l => l.fc && l.origem === "H10") },
+  ].map(sr => ({ ...sr, pts: sr.pts.map(l => ({ t: new Date(l.medido_em).getTime(), v: l.fc })) })).filter(sr => sr.pts.length);
+  const todos = series.flatMap(sr => sr.pts);
+  if (todos.length < 2) { alvo.innerHTML = `<div class="vazio">Sem dados de FC nesta janela.</div>`; resumo.textContent = ""; return; }
+  const stats = sr => { const vs = sr.pts.map(p => p.v).sort((a, b) => a - b); return `mín. ${vs[0]} · mediana ${vs[vs.length >> 1]} · máx. ${vs[vs.length - 1]} bpm`; };
+  resumo.innerHTML = series.length === 1 && series[0].nome === "relógio" ? esc(stats(series[0]))
+    : `<span class="legenda">${series.map(sr => `<span><i style="background:${sr.cor}"></i>${sr.nome}: ${esc(stats(sr))}</span>`).join("")}</span>`;
+  const vs = todos.map(p => p.v).sort((a, b) => a - b);
   const W = Math.max(300, alvo.clientWidth || 700), H = W < 500 ? 200 : 220, m = { l: 34, r: 10, t: 10, b: 24 };
   const t1 = Date.now(), t0 = t1 - janelaMin * 60000;
   const lo = Math.min(50, Math.floor((vs[0] - 5) / 10) * 10), hi = Math.max(110, Math.ceil((vs[vs.length - 1] + 5) / 10) * 10);
@@ -435,13 +481,15 @@ function desenharGrafico(ls) {
   let g = "";
   for (let v = lo; v <= hi; v += (hi - lo > 80 ? 20 : 10)) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grade)"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let i = 0; i <= 4; i++) { const t = t0 + i * (t1 - t0) / 4; g += `<text x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === 4 ? "end" : "middle"}">${fmtHora.format(new Date(t))}</text>`; }
-  // quebra a linha onde há buraco > 2 min (medições separadas)
-  let d = "", ant = null;
-  for (const p of pts) { d += (ant && p.t - ant.t < 120000 ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1); ant = p; }
-  const isolados = pts.filter((p, i) => (i === 0 || p.t - pts[i - 1].t >= 120000) && (i === pts.length - 1 || pts[i + 1].t - p.t >= 120000))
-    .map(p => `<circle cx="${x(p.t)}" cy="${y(p.v)}" r="2.5" fill="var(--linha)"/>`).join("");
-  alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Frequência cardíaca na última janela">${g}
-    <path d="${d}" fill="none" stroke="var(--linha)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${isolados}</svg>`;
+  // cada série: quebra a linha onde há buraco > 2 min (medições separadas); pontos isolados viram bolinhas
+  const linhas = series.map(sr => {
+    const pts = sr.pts; let d = "", ant = null;
+    for (const p of pts) { d += (ant && p.t - ant.t < 120000 ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1); ant = p; }
+    const isolados = pts.filter((p, i) => (i === 0 || p.t - pts[i - 1].t >= 120000) && (i === pts.length - 1 || pts[i + 1].t - p.t >= 120000))
+      .map(p => `<circle cx="${x(p.t)}" cy="${y(p.v)}" r="2.5" fill="${sr.cor}"/>`).join("");
+    return `<path d="${d}" fill="none" stroke="${sr.cor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${isolados}`;
+  }).join("");
+  alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Frequência cardíaca na última janela">${g}${linhas}</svg>`;
 }
 
 async function pedirMedicao() {

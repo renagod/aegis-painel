@@ -100,7 +100,8 @@
   .nota { font-size: 12.5px; color: var(--texto-3); margin-top: 10px; }
   .oculto { display: none !important; }
   #verSeg button:disabled { opacity: .45; cursor: default; }
-  #verSvg svg { margin-top: 6px; border-radius: 10px; background: var(--superficie-alta); }
+  .verItem svg { margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
+  .verItem .msg { margin-top: 4px; }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
   .modos { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -355,8 +356,8 @@ function esqueleto() {
         <button data-f="relogio_ecg" aria-pressed="false">ECG do relógio</button>
       </div>
       <div id="verArea" class="oculto">
-        <div id="verSvg"></div>
-        <div class="msg" id="verInfo" style="margin-top:6px"></div>
+        <div id="verGraficos"></div>
+        <div class="msg erro oculto" id="verErro" style="margin-top:6px"></div>
       </div>
       <div class="nota">Mostra os últimos segundos do sinal, atualizados a cada ~2 s, só enquanto este painel estiver aberto e olhando; fechou, o celular para sozinho em ~20 s. Na nuvem fica só o último trecho. Uso em teste com o próprio pesquisador: com participantes, precisa constar no CEP/TCLE.</div>
     </div>
@@ -638,20 +639,22 @@ async function acao(nome, parametros) {
   vivo();
 }
 
-// ---------- Sinal ao vivo (06/11, 2ª parte) ----------
-let verFonte = null, verErro = null;
+// ---------- Sinal ao vivo (06/11, 2ª parte; 15h: vários ao mesmo tempo, um gráfico embaixo do outro) ----------
+let verFontes = [], verErro = null;
 const NOMES_VER = { h10_ecg: "ECG da cinta", relogio_ppg: "PPG do relógio", relogio_ecg: "ECG do relógio" };
 
 function ligarAoVivo() {
   document.querySelectorAll("#verSeg button").forEach(b => b.onclick = () => ver(b.dataset.f));
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && verFonte) vivo(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && verFontes.length) vivo(); });
 }
 
+/** Liga ou desliga um sinal. PPG e ECG do relógio se excluem (o relógio tem um modo por vez). */
 async function ver(f) {
-  if (f === verFonte) return pararDeVer();
-  verFonte = f; verErro = null;
+  if (verFontes.includes(f)) return pararDeVer(f);
+  if (f.startsWith("relogio_")) verFontes = verFontes.filter(x => !x.startsWith("relogio_"));
+  verFontes = [...verFontes, f].sort((a, b) => Object.keys(NOMES_VER).indexOf(a) - Object.keys(NOMES_VER).indexOf(b));
+  verErro = null;
   desenharAoVivo(dados && dados.status);
-  document.getElementById("verInfo").textContent = `${NOMES_VER[f]}: pedindo ao celular…`;
   try {
     await rpc("painel_acao", { p_token: token, p_acao: "ver", p_parametros: { fonte: f } });
   } catch (e) {
@@ -661,13 +664,15 @@ async function ver(f) {
   vivo();
 }
 
-function pararDeVer() {
-  verFonte = null; verErro = null;
-  rpc("painel_vivo", { p_token: token, p_ver: "" }).catch(() => {});
+function pararDeVer(f) {
+  verFontes = verFontes.filter(x => x !== f);
+  verErro = null;
+  rpc("painel_vivo", { p_token: token, p_ver: verFontes.join(",") }).catch(() => {});
+  if (dados && dados.tracados) dados.tracados = dados.tracados.filter(t => t.fonte !== f);
   desenharAoVivo(dados && dados.status);
 }
 
-/** Botões (o que dá para ver agora) e o traçado do último trecho que o celular mandou. */
+/** Botões (o que dá para ver agora) e um gráfico por sinal ligado, com o último trecho que o celular mandou. */
 function desenharAoVivo(s) {
   const online = !!s && s.segundos_atras <= 45, h = s && s.h10;
   const cinta = online && h && s.h10_segundos_atras <= 45 && h.estado === "CONECTADO";
@@ -677,29 +682,34 @@ function desenharAoVivo(s) {
   const motivo = { h10_ecg: "Conecte a cinta", relogio_ppg: gravandoOutro ? "O relógio está gravando outro modo" : "Relógio desconectado",
                    relogio_ecg: gravandoOutro ? "O relógio está gravando outro modo" : "Relógio desconectado" };
   document.querySelectorAll("#verSeg button").forEach(b => {
-    const f = b.dataset.f;
-    b.setAttribute("aria-pressed", f === verFonte);
-    b.disabled = !pode[f] && f !== verFonte;
-    b.title = pode[f] ? (f === verFonte ? "Parar de ver" : "Ver " + NOMES_VER[f]) : motivo[f];
+    const f = b.dataset.f, liga = verFontes.includes(f);
+    b.setAttribute("aria-pressed", liga);
+    b.disabled = !pode[f] && !liga;
+    b.title = pode[f] ? (liga ? "Parar de ver" : "Ver " + NOMES_VER[f] + (f.startsWith("relogio_") ? " (o relógio mostra um sinal por vez)" : "")) : motivo[f];
   });
-  mostrar("verArea", !!verFonte);
-  if (!verFonte) return;
-  const t = dados && dados.tracado, info = document.getElementById("verInfo");
-  if (verErro) { info.className = "msg erro"; info.textContent = verErro; return; }
-  info.className = "msg";
-  if (!t || t.fonte !== verFonte) {
-    info.textContent = `${NOMES_VER[verFonte]}: aguardando o celular…`;
-    document.getElementById("verSvg").innerHTML = "";
-    return;
+  mostrar("verArea", verFontes.length > 0);
+  const err = document.getElementById("verErro");
+  err.textContent = verErro || ""; mostrar("verErro", !!verErro);
+  const area = document.getElementById("verGraficos");
+  // um bloco por sinal, na ordem dos botões (recria só quando a lista muda, para não piscar)
+  if (area.dataset.lista !== verFontes.join(",")) {
+    area.dataset.lista = verFontes.join(",");
+    area.innerHTML = verFontes.map(f => `<div class="verItem" data-f="${f}"><div class="svg"></div><div class="msg"></div></div>`).join("");
   }
-  const idade = Math.round(t.segundos_atras);
-  // velho: trecho antigo, ou o celular avisa que o sinal não está chegando (manda o último guardado)
-  const velho = idade > 8 || !!t.info, ppg = verFonte === "relogio_ppg";
-  // PPG: o celular manda 10 s brutos; aqui filtra 0,5–5 Hz, inverte (pulso para cima) e mostra os últimos 8 s
-  const vals = ppg && t.amostras.length > 10 ? filtroPpg(t.amostras, +t.taxa_hz).slice(-Math.round(8 * t.taxa_hz)) : t.amostras;
-  info.textContent = [NOMES_VER[verFonte], t.info ? t.info + " (traçado antigo)" : "", idade > 8 ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
-                      vals.length ? `${num1.format(vals.length / t.taxa_hz)} s` + (ppg ? " (filtrado 0,5–5 Hz)" : "") : ""].filter(Boolean).join(" · ");
-  desenharTracado(vals, ppg ? "var(--linha)" : "var(--h10)", velho);
+  const lista = (dados && dados.tracados) || (dados && dados.tracado ? [dados.tracado] : []);
+  for (const f of verFontes) {
+    const item = area.querySelector(`.verItem[data-f="${f}"]`), info = item.querySelector(".msg"), alvo = item.querySelector(".svg");
+    const t = lista.find(x => x && x.fonte === f);
+    if (!t) { info.textContent = `${NOMES_VER[f]}: aguardando o celular…`; alvo.innerHTML = ""; continue; }
+    const idade = Math.round(t.segundos_atras);
+    // velho: trecho antigo, ou o celular avisa que o sinal não está chegando (manda o último guardado)
+    const velho = idade > 8 || !!t.info, ppg = f === "relogio_ppg";
+    // PPG: o celular manda 10 s brutos; aqui filtra 0,5–5 Hz, inverte (pulso para cima) e mostra os últimos 8 s
+    const vals = ppg && t.amostras.length > 10 ? filtroPpg(t.amostras, +t.taxa_hz).slice(-Math.round(8 * t.taxa_hz)) : t.amostras;
+    info.textContent = [NOMES_VER[f], t.info ? t.info + " (traçado antigo)" : "", idade > 8 ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
+                        vals.length ? `${num1.format(vals.length / t.taxa_hz)} s` + (ppg ? " (filtrado 0,5–5 Hz)" : "") : ""].filter(Boolean).join(" · ");
+    desenharTracado(alvo, vals, ppg ? "var(--linha)" : f === "h10_ecg" ? "var(--h10)" : "var(--ok)", velho);
+  }
 }
 
 /** Mesmo filtro do app (FiltroPpg.java) e do comparar_ppg.py: Butterworth 0,5–5 Hz ida e volta; invertido. */
@@ -720,8 +730,7 @@ function filtroPpg(x, fs) {
   return y.map(v => -v);
 }
 
-function desenharTracado(a, cor, velho) {
-  const alvo = document.getElementById("verSvg");
+function desenharTracado(alvo, a, cor, velho) {
   if (!a || a.length < 2) { alvo.innerHTML = ""; return; }
   const W = Math.max(300, alvo.clientWidth || 700), H = 120, m = 6;
   let lo = Math.min(...a), hi = Math.max(...a);
@@ -838,7 +847,7 @@ function algoAoVivo() {
 function agendar() {
   clearTimeout(timer);
   if (falhas) { timer = setTimeout(atualizar, Math.min(30000, 10000 * (1 + falhas))); return; }
-  if (verFonte && !semVivo) { timer = setTimeout(() => (Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), 2000); return; }
+  if (verFontes.length && !semVivo) { timer = setTimeout(() => (Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), 2000); return; }
   if (algoAoVivo()) timer = setTimeout(() => (semVivo || Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), semVivo ? 2000 : 3000);
   else timer = setTimeout(atualizar, 10000);
 }
@@ -852,11 +861,11 @@ function falhou(e) {
 async function atualizar() {
   clearTimeout(timer);
   try {
-    const tracado = dados && dados.tracado;   // a completa não traz o traçado: guarda o último
+    const tracados = dados && dados.tracados, tracado = dados && dados.tracado;   // a completa não traz os traçados: guarda os últimos
     // 06/11: sem o gráfico de FC, basta o mínimo (5 min) de leituras (usado só para a última SpO₂)
     dados = await rpc("painel_dados", { p_token: token, p_minutos: 5 });
     if (!dados.acoes) dados.acoes = [];
-    if (verFonte && tracado) dados.tracado = tracado;
+    if (verFontes.length) { dados.tracados = tracados; dados.tracado = tracado; }
     falhas = 0; ultimaCompleta = Date.now(); desenhar();
   } catch (e) { if (falhou(e)) return; }
   agendar();
@@ -866,15 +875,20 @@ async function vivo() {
   clearTimeout(timer);
   try {
     const args = { p_token: token };
-    if (verFonte && !document.hidden) args.p_ver = verFonte;
+    if (verFontes.length && !document.hidden) args.p_ver = verFontes.join(",");
     let v;
     try { v = await rpc("painel_vivo", args); }
     catch (e) {
-      if (!args.p_ver || !/p_ver|painel_vivo/.test(e.message)) throw e;
-      verErro = "Falta rodar a migração 06/11b (traçado) no Supabase.";   // painel_vivo antigo, sem p_ver
-      v = await rpc("painel_vivo", { p_token: token });
+      if (!args.p_ver) throw e;
+      if (/p_ver|painel_vivo/.test(e.message)) {
+        verErro = "Falta rodar a migração 06/11b (traçado) no Supabase.";   // painel_vivo antigo, sem p_ver
+        v = await rpc("painel_vivo", { p_token: token });
+      } else if (/sinal desconhecido/.test(e.message) && verFontes.length > 1) {
+        verErro = "Para ver dois sinais juntos, falta rodar a migração 06/11c no Supabase.";   // só a 06b: um sinal
+        v = await rpc("painel_vivo", { p_token: token, p_ver: verFontes[0] });
+      } else throw e;
     }
-    if (!verFonte) v.tracado = null;
+    if (!verFontes.length) { v.tracado = null; v.tracados = []; }
     Object.assign(dados, v);
     falhas = 0; desenhar(false);
   } catch (e) {

@@ -147,7 +147,7 @@ const app = document.getElementById("app");
 const fmtHora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const fmtDataHora = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const num1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-let token = null, janelaMin = 60, dados = null, timer = null, falhas = 0, pedindo = false;
+let token = null, dados = null, timer = null, falhas = 0, pedindo = false;
 
 function lerToken() {
   const m = location.hash.match(/[#&]t=([0-9a-f]{32,})/i);
@@ -225,7 +225,7 @@ const MODOS = {
     nome: "Só a cinta H10", curto: "RR + ECG + ACC da cinta, sem o relógio", tec: "Polar H10 · RR batimento a batimento, ECG 130 Hz, ACC 200 Hz",
     mede: "A referência da validação sozinha: os intervalos entre batimentos (RR), o ECG do peito e o acelerômetro da cinta, gravados no celular no mesmo formato do Polar Sensor Logger.",
     uso: "A cinta precisa estar conectada ao celular (na seção Cinta Polar H10 acima), no peito e com os eletrodos molhados. ECG e ACC seguem as caixas da seção da cinta.",
-    painel: "A FC da cinta aparece em laranja durante a gravação; no fim, o resumo: RR gravados, FC mediana, taxa real do ECG, quedas de conexão.",
+    painel: "A FC da cinta aparece no cartão e no bloco da cinta durante a gravação; no fim, o resumo: RR gravados, FC mediana, taxa real do ECG, quedas de conexão.",
     instr: ""
   },
 };
@@ -399,19 +399,6 @@ function esqueleto() {
       </div>
     </dialog>
 
-    <h2>Frequência cardíaca</h2>
-    <div class="grafico">
-      <div class="topo">
-        <span class="msg" id="resumoFc"></span>
-        <div class="seg" id="janela">
-          <button data-min="60" aria-pressed="true">1 h</button>
-          <button data-min="360" aria-pressed="false">6 h</button>
-          <button data-min="1440" aria-pressed="false">24 h</button>
-        </div>
-      </div>
-      <div id="svg"></div>
-    </div>
-
     <h2>Coletas recentes</h2>
     <ul class="lista" id="sessoes"></ul>
 
@@ -419,7 +406,7 @@ function esqueleto() {
       <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
       A <b>pressão arterial não é mostrada</b>: nos testes, o relógio mandou sempre 120/80 com uma pequena variação sorteada,
       sem medir de fato. A respiração do modo “Sinais vitais” também é uma estimativa do relógio (a FC dividida por 4). A <b>SpO₂ não é medida na hora</b>: é o último valor que o relógio mediu no menu Blood Oxygen, sem o horário dessa medida.
-      A <b>cinta Polar H10</b> (no peito) é o aparelho de referência da validação: a FC dela aparece em laranja quando a cinta está conectada ao celular.
+      A <b>cinta Polar H10</b> (no peito) é o aparelho de referência da validação: a FC dela aparece no cartão “FC · cinta H10” e no bloco da cinta quando ela está conectada ao celular.
       Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
@@ -455,11 +442,6 @@ function esqueleto() {
     const sel = document.getElementById(id);
     sel.onchange = () => { if (sel.value) acao("marcar", { etapa: sel.value }); sel.value = ""; };
   }
-  document.querySelectorAll("#janela button").forEach(b => b.onclick = () => {
-    janelaMin = +b.dataset.min;
-    document.querySelectorAll("#janela button").forEach(x => x.setAttribute("aria-pressed", x === b));
-    atualizar();
-  });
 }
 
 function cartao(rot, val, un, selo, velho) {
@@ -502,7 +484,6 @@ function desenhar(completo = true) {
 
   desenharComando(d.comandos[0]);
   if (!completo) return;
-  desenharGrafico(d.leituras);
 
   document.getElementById("sessoes").innerHTML = d.sessoes.length ? d.sessoes.map(x => `
     <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.fc_mediana != null ? `FC ${x.fc_mediana} bpm` : "", x.sinais_parados ? `sinal parou ${x.sinais_parados}×` : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
@@ -712,10 +693,11 @@ function desenharAoVivo(s) {
     return;
   }
   const idade = Math.round(t.segundos_atras);
-  const velho = idade > 8, ppg = verFonte === "relogio_ppg";
+  // velho: trecho antigo, ou o celular avisa que o sinal não está chegando (manda o último guardado)
+  const velho = idade > 8 || !!t.info, ppg = verFonte === "relogio_ppg";
   // PPG: o celular manda 10 s brutos; aqui filtra 0,5–5 Hz, inverte (pulso para cima) e mostra os últimos 8 s
   const vals = ppg && t.amostras.length > 10 ? filtroPpg(t.amostras, +t.taxa_hz).slice(-Math.round(8 * t.taxa_hz)) : t.amostras;
-  info.textContent = [NOMES_VER[verFonte], t.info || "", velho ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
+  info.textContent = [NOMES_VER[verFonte], t.info ? t.info + " (traçado antigo)" : "", idade > 8 ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
                       vals.length ? `${num1.format(vals.length / t.taxa_hz)} s` + (ppg ? " (filtrado 0,5–5 Hz)" : "") : ""].filter(Boolean).join(" · ");
   desenharTracado(vals, ppg ? "var(--linha)" : "var(--h10)", velho);
 }
@@ -827,37 +809,6 @@ function resumoResultado(c, m) {
   return t;
 }
 
-function desenharGrafico(ls) {
-  const alvo = document.getElementById("svg"), resumo = document.getElementById("resumoFc");
-  // Duas séries (05/11): o relógio (azul) e a cinta Polar H10 (laranja, referência)
-  const series = [
-    { nome: "relógio", cor: "var(--linha)", pts: ls.filter(l => l.fc && l.origem !== "H10") },
-    { nome: "cinta H10", cor: "var(--h10)", pts: ls.filter(l => l.fc && l.origem === "H10") },
-  ].map(sr => ({ ...sr, pts: sr.pts.map(l => ({ t: new Date(l.medido_em).getTime(), v: l.fc })) })).filter(sr => sr.pts.length);
-  const todos = series.flatMap(sr => sr.pts);
-  if (todos.length < 2) { alvo.innerHTML = `<div class="vazio">Sem dados de FC nesta janela.</div>`; resumo.textContent = ""; return; }
-  const stats = sr => { const vs = sr.pts.map(p => p.v).sort((a, b) => a - b); return `mín. ${vs[0]} · mediana ${vs[vs.length >> 1]} · máx. ${vs[vs.length - 1]} bpm`; };
-  resumo.innerHTML = series.length === 1 && series[0].nome === "relógio" ? esc(stats(series[0]))
-    : `<span class="legenda">${series.map(sr => `<span><i style="background:${sr.cor}"></i>${sr.nome}: ${esc(stats(sr))}</span>`).join("")}</span>`;
-  const vs = todos.map(p => p.v).sort((a, b) => a - b);
-  const W = Math.max(300, alvo.clientWidth || 700), H = W < 500 ? 200 : 220, m = { l: 34, r: 10, t: 10, b: 24 };
-  const t1 = Date.now(), t0 = t1 - janelaMin * 60000;
-  const lo = Math.min(50, Math.floor((vs[0] - 5) / 10) * 10), hi = Math.max(110, Math.ceil((vs[vs.length - 1] + 5) / 10) * 10);
-  const x = t => m.l + (t - t0) / (t1 - t0) * (W - m.l - m.r), y = v => m.t + (hi - v) / (hi - lo) * (H - m.t - m.b);
-  let g = "";
-  for (let v = lo; v <= hi; v += (hi - lo > 80 ? 20 : 10)) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grade)"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
-  for (let i = 0; i <= 4; i++) { const t = t0 + i * (t1 - t0) / 4; g += `<text x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === 4 ? "end" : "middle"}">${fmtHora.format(new Date(t))}</text>`; }
-  // cada série: quebra a linha onde há buraco > 2 min (medições separadas); pontos isolados viram bolinhas
-  const linhas = series.map(sr => {
-    const pts = sr.pts; let d = "", ant = null;
-    for (const p of pts) { d += (ant && p.t - ant.t < 120000 ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1); ant = p; }
-    const isolados = pts.filter((p, i) => (i === 0 || p.t - pts[i - 1].t >= 120000) && (i === pts.length - 1 || pts[i + 1].t - p.t >= 120000))
-      .map(p => `<circle cx="${x(p.t)}" cy="${y(p.v)}" r="2.5" fill="${sr.cor}"/>`).join("");
-    return `<path d="${d}" fill="none" stroke="${sr.cor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${isolados}`;
-  }).join("");
-  alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Frequência cardíaca na última janela">${g}${linhas}</svg>`;
-}
-
 async function pedirMedicao() {
   pedindo = true; document.getElementById("medir").disabled = true;
   try {
@@ -902,7 +853,8 @@ async function atualizar() {
   clearTimeout(timer);
   try {
     const tracado = dados && dados.tracado;   // a completa não traz o traçado: guarda o último
-    dados = await rpc("painel_dados", { p_token: token, p_minutos: janelaMin });
+    // 06/11: sem o gráfico de FC, basta o mínimo (5 min) de leituras (usado só para a última SpO₂)
+    dados = await rpc("painel_dados", { p_token: token, p_minutos: 5 });
     if (!dados.acoes) dados.acoes = [];
     if (verFonte && tracado) dados.tracado = tracado;
     falhas = 0; ultimaCompleta = Date.now(); desenhar();

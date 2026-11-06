@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aegis · Painel</title>
 <!--
-  Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição; 05/11: cinta Polar H10). Ver LEIA-ME.md.
+  Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição; 05/11: cinta Polar H10;
+  06/11: controle da cinta pelo painel, gravação relógio + cinta, Marcar/Parar, até 15 min). Ver LEIA-ME.md.
   1. Preencha SUPABASE_URL e CHAVE_PUBLICA abaixo (os mesmos do ConfigNuvem.java do app).
   2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
      (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
@@ -75,7 +76,29 @@
   ul.lista .sub { color: var(--texto-2); }
   .legenda { display: inline-flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--texto-2); }
   .legenda i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
-  #h10linha { margin-top: 6px; }
+  #h10linha { display: flex; margin-top: 6px; }   /* sempre numa linha própria, também no computador (06/11) */
+  .cartao.velho { opacity: .55; }
+  .cinta .topo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cinta .titulo { font-weight: 600; font-size: 15.5px; }
+  .cinta .ponto { background: var(--texto-3); }
+  .cinta .ponto.ok { background: var(--ok); } .cinta .ponto.alerta { background: var(--alerta); } .cinta .ponto.erro { background: var(--perigo); }
+  .cinta .sub { font-size: 13px; color: var(--texto-2); margin-top: 2px; }
+  .mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px; margin-top: 12px; }
+  .mini > div { background: var(--superficie-alta); border-radius: 10px; padding: 8px 10px; }
+  .mini .r { font-size: 12px; color: var(--texto-2); }
+  .mini .v { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mini .v small { font-size: 12px; font-weight: 500; color: var(--texto-2); margin-left: 2px; }
+  .contagem { font-size: 13.5px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .alerta-sinal { margin-top: 10px; padding: 9px 12px; border-radius: 10px; font-size: 14px; font-weight: 600;
+                  color: var(--perigo); background: color-mix(in srgb, var(--perigo) 12%, transparent); }
+  .controles { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .controles input[type=text] { font: inherit; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--borda);
+                                background: var(--superficie); color: var(--texto); width: 150px; text-transform: uppercase; }
+  .controles label.cx { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
+  .controles .botao, .controles .secundario { padding: 9px 14px; }
+  .perigo { background: var(--perigo); color: #fff; font-weight: 600; }
+  .nota { font-size: 12.5px; color: var(--texto-3); margin-top: 10px; }
+  .oculto { display: none !important; }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
   .modos { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -196,7 +219,18 @@ const MODOS = {
     uso: "O relógio só começa o ECG quando alguém abre o ECG no menu do próprio relógio e encosta o dedo no sensor. O celular fica pronto para gravar; se ninguém abrir o menu, a medição termina sem dados.",
     painel: RESUMO_BRUTO, instr: "Peça para abrir o ECG no menu do relógio e encostar o dedo."
   },
+  H10: {
+    nome: "Só a cinta H10", curto: "RR + ECG + ACC da cinta, sem o relógio", tec: "Polar H10 · RR batimento a batimento, ECG 130 Hz, ACC 200 Hz",
+    mede: "A referência da validação sozinha: os intervalos entre batimentos (RR), o ECG do peito e o acelerômetro da cinta, gravados no celular no mesmo formato do Polar Sensor Logger.",
+    uso: "A cinta precisa estar conectada ao celular (na seção Cinta Polar H10 acima), no peito e com os eletrodos molhados. ECG e ACC seguem as caixas da seção da cinta.",
+    painel: "A FC da cinta aparece em laranja durante a gravação; no fim, o resumo: RR gravados, FC mediana, taxa real do ECG, quedas de conexão.",
+    instr: ""
+  },
 };
+const ATIVIDADES = { deitado: "Deitado", sentado: "Sentado", em_pe: "Em pé", caminhada: "Caminhada", livre: "Livre (dia a dia)" };
+function nomeAtividade(c) { return ATIVIDADES[c] || (c && /^marca\d*$/.test(c) ? "Marca" : c) || ""; }
+const fmtHoraSeg = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const numInt = new Intl.NumberFormat("pt-BR");
 let modo = "VITAIS";
 
 function lerPref(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -225,6 +259,7 @@ function escolherModo(id) {
   if (!MODOS[id]) return;
   modo = id; gravarPref("aegis_modo", id);
   const r = document.getElementById("m_" + id); if (r) r.checked = true;
+  atualizarComCinta();
   textoPadrao();
 }
 
@@ -247,6 +282,7 @@ function textoPadrao() {
   msg.className = "msg";
   msg.textContent = MODOS[modo].vivo ? "O celular liga o relógio e os valores aparecem aqui ao vivo."
     : modo === "ECG" ? "Alguém precisa abrir o ECG no menu do relógio."
+    : modo === "H10" ? "O celular grava a cinta (conectada acima); aqui aparece o resumo no fim."
     : "O celular grava o sinal do relógio; aqui aparece o resumo no fim.";
 }
 
@@ -283,6 +319,32 @@ function esqueleto() {
     <div class="grade" id="cartoes"></div>
     <div class="quando" id="quando"></div>
 
+    <div class="acao cinta" id="cinta">
+      <div class="topo"><span class="ponto" id="cPonto"></span><span class="titulo">Cinta Polar H10</span><span class="selo">referência</span></div>
+      <div class="sub" id="cEstado">…</div>
+      <div class="mini oculto" id="cMini"></div>
+      <div class="contagem oculto" id="cContagem"></div>
+      <div class="alerta-sinal oculto" id="cAlerta" role="alert"></div>
+      <div class="controles" id="cConectar">
+        <input type="text" id="cId" maxlength="10" placeholder="ID (opcional)" aria-label="ID da cinta" spellcheck="false" autocomplete="off">
+        <button class="botao" id="cBtConectar">Conectar</button>
+      </div>
+      <div class="controles oculto" id="cParado">
+        <label class="cx"><input type="checkbox" id="cEcg" checked> ECG 130 Hz</label>
+        <label class="cx"><input type="checkbox" id="cAcc" checked> ACC 200 Hz</label>
+        <select id="cAtividade" aria-label="Atividade"><option value="">Atividade…</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
+        <button class="botao" id="cBtIniciar">Iniciar gravação</button>
+        <button class="secundario" id="cBtDesconectar">Desconectar</button>
+      </div>
+      <div class="controles oculto" id="cGravando">
+        <button class="botao" id="cBtMarcar">Marcar</button>
+        <select id="cNovaAtividade" aria-label="Nova atividade"><option value="">Trocar atividade…</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
+        <button class="perigo" id="cBtParar">Parar gravação</button>
+      </div>
+      <div class="msg" id="cMsg" style="margin-top:10px"></div>
+      <div class="nota" id="cNota">Conectar pelo painel: a cinta precisa estar no peito (ela só liga com o batimento), com os eletrodos molhados, e perto do celular. O app Aegis precisa estar aberto ou em 2º plano com a nuvem ligada.</div>
+    </div>
+
     <div class="acao">
       <div class="rotulo">Modo de medição</div>
       <div class="modos" id="modos" role="radiogroup" aria-label="Modo de medição"></div>
@@ -290,10 +352,21 @@ function esqueleto() {
         <button class="botao" id="medir">Medir agora</button>
         <select id="duracao" aria-label="Duração da medição">
           <option value="30">30 s</option><option value="60" selected>60 s</option><option value="90">90 s</option>
+          <option value="120">2 min</option><option value="180">3 min</option><option value="300">5 min</option>
+          <option value="360">6 min</option><option value="600">10 min</option><option value="900">15 min</option>
         </select>
-        <span class="msg" id="msgMedir"></span>
+        <select id="atividadeMed" aria-label="Atividade da medição"><option value="">Atividade (opcional)</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
+        <label class="cx" id="comCintaRot" style="display:inline-flex;gap:6px;align-items:center;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="comCinta"> + cinta H10</label>
       </div>
+      <div class="msg" id="msgMedir" style="margin-top:10px"></div>
       <div class="barra" id="barra"><div></div></div>
+      <div class="controles oculto" id="durante">
+        <button class="botao" id="mBtMarcar">Marcar</button>
+        <select id="mNovaAtividade" aria-label="Nova atividade"><option value="">Trocar atividade…</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
+        <button class="perigo" id="mBtParar">Parar agora</button>
+        <span class="msg" id="mMsg"></span>
+      </div>
     </div>
 
     <dialog id="dlg" aria-labelledby="dlgTitulo">
@@ -335,9 +408,36 @@ function esqueleto() {
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
   montarModos();
-  const dur = lerPref("aegis_duracao");
-  if (["30", "60", "90"].includes(dur)) document.getElementById("duracao").value = dur;
-  document.getElementById("duracao").onchange = e => gravarPref("aegis_duracao", e.target.value);
+  const dur = lerPref("aegis_duracao"), selDur = document.getElementById("duracao");
+  if ([...selDur.options].some(o => o.value === dur)) selDur.value = dur;
+  selDur.onchange = e => gravarPref("aegis_duracao", e.target.value);
+  // Cinta H10 (06/11): preferências guardadas neste navegador
+  const ligarPref = (id, chave, padrao) => {
+    const el = document.getElementById(id), v = lerPref(chave);
+    if (el.type === "checkbox") { el.checked = v == null ? padrao : v === "1"; el.onchange = () => { gravarPref(chave, el.checked ? "1" : "0"); atualizarComCinta(); }; }
+    else { if (v != null) el.value = v; el.onchange = () => gravarPref(chave, el.value); }
+  };
+  ligarPref("cId", "aegis_h10_id", "");
+  ligarPref("cEcg", "aegis_h10_ecg", true);
+  ligarPref("cAcc", "aegis_h10_acc", true);
+  ligarPref("cAtividade", "aegis_atividade", "");
+  ligarPref("atividadeMed", "aegis_atividade_med", "");
+  ligarPref("comCinta", "aegis_com_cinta", false);
+  document.getElementById("cBtConectar").onclick = () => acao("h10_conectar", { id: document.getElementById("cId").value.trim().toUpperCase() });
+  document.getElementById("cBtDesconectar").onclick = () => acao("h10_desconectar");
+  document.getElementById("cBtIniciar").onclick = () => {
+    const at = document.getElementById("cAtividade");
+    if (!at.value) { at.focus(); return mostrarMsg("cMsg", "Escolha a atividade antes de iniciar.", "erro"); }
+    acao("h10_iniciar", { ecg: document.getElementById("cEcg").checked, acc: document.getElementById("cAcc").checked, atividade: at.value });
+  };
+  document.getElementById("cBtParar").onclick = () => { if (confirm("Parar a gravação da cinta?")) acao("h10_parar"); };
+  document.getElementById("cBtMarcar").onclick = () => acao("marcar", { etapa: "marca" });
+  document.getElementById("mBtMarcar").onclick = () => acao("marcar", { etapa: "marca" });
+  document.getElementById("mBtParar").onclick = () => { if (confirm("Parar a medição agora? O que já foi gravado fica salvo.")) acao("parar_medicao"); };
+  for (const id of ["cNovaAtividade", "mNovaAtividade"]) {
+    const sel = document.getElementById(id);
+    sel.onchange = () => { if (sel.value) acao("marcar", { etapa: sel.value }); sel.value = ""; };
+  }
   document.querySelectorAll("#janela button").forEach(b => b.onclick = () => {
     janelaMin = +b.dataset.min;
     document.querySelectorAll("#janela button").forEach(x => x.setAttribute("aria-pressed", x === b));
@@ -345,12 +445,13 @@ function esqueleto() {
   });
 }
 
-function cartao(rot, val, un, selo) {
-  return `<div class="cartao"><div class="rot">${rot}${selo ? ` <span class="selo">${selo}</span>` : ""}</div>
+function cartao(rot, val, un, selo, velho) {
+  return `<div class="cartao${velho ? " velho" : ""}"><div class="rot">${rot}${selo ? ` <span class="selo">${selo}</span>` : ""}</div>
           <div class="val">${val ?? "—"}${val != null && un ? `<small>${un}</small>` : ""}</div></div>`;
 }
 
-function desenhar() {
+/** completo = false: atualização rápida (painel_vivo), sem redesenhar o gráfico e as coletas. */
+function desenhar(completo = true) {
   const d = dados;
   document.getElementById("nome").textContent = d.paciente || "Paciente";
 
@@ -362,26 +463,31 @@ function desenhar() {
   else { ponto.className = "ponto ok"; est.textContent = `Celular online · relógio conectado${s.sensor ? " · gravando " + s.sensor : ""}`; }
 
   const h10 = desenharH10(s);
+  desenharCinta(s);
 
   // Cartões com a última leitura (do relógio; a H10 tem o cartão dela)
   const u = d.ultima_leitura;
   // SpO2: o 0x64 só repassa a última SpO2 medida no menu Blood Oxygen do relógio (02/11); sem ela vem 0 (null no banco).
   const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
   const cartaoH10 = h10 ? cartao("FC · cinta H10", h10.fc, "bpm", "referência") : "";
+  // Leitura do relógio com mais de 10 min: esmaecida e com a idade no selo (06/11), para não parecer ao vivo
+  const idadeU = u ? segDesde(u.medido_em) : null, velho = idadeU != null && idadeU > 600;
+  const selo = base => [base, velho ? ha(idadeU) : ""].filter(Boolean).join(" · ");
   document.getElementById("cartoes").innerHTML = u ? [
-    cartao("Freq. cardíaca", u.fc, "bpm", h10 ? "relógio" : ""),
+    cartao("Freq. cardíaca", u.fc, "bpm", selo(h10 ? "relógio" : ""), velho),
     cartaoH10,
-    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? "" : " · " + ha(segDesde(comSpo2.medido_em)))) : "",
-    cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C"),
-    cartao("Respiração", u.resp, "/min", "estimada"),
+    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? (velho ? " · " + ha(idadeU) : "") : " · " + ha(segDesde(comSpo2.medido_em))), velho) : "",
+    cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C", selo(""), velho),
+    cartao("Respiração", u.resp, "/min", selo("estimada"), velho),
   ].join("") : cartaoH10 || `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
   document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
 
   desenharComando(d.comandos[0]);
+  if (!completo) return;
   desenharGrafico(d.leituras);
 
   document.getElementById("sessoes").innerHTML = d.sessoes.length ? d.sessoes.map(x => `
-    <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
+    <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.fc_mediana != null ? `FC ${x.fc_mediana} bpm` : "", x.sinais_parados ? `sinal parou ${x.sinais_parados}×` : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
         <span class="sub" style="text-align:right">${fmtDataHora.format(new Date(x.recebido_em))}${x.quedas_conexao ? `<br>${x.quedas_conexao} ${x.quedas_conexao == 1 ? "queda" : "quedas"} de conexão` : ""}</span></li>`).join("")
     : `<li class="sub">Nenhuma coleta enviada ainda.</li>`;
 }
@@ -405,7 +511,7 @@ function desenharH10(s) {
     if (h.fc) partes.push(`FC ${h.fc} bpm`);
     if (h.contato === 0) partes.push("sem contato com a pele");
     if (h.bateria != null) partes.push(`bateria ${h.bateria}%`);
-    if (h.gravando) partes.push(`gravando ${h.gravando_s != null ? duracao(h.gravando_s + idade) : ""}${h.etapa ? " (" + h.etapa + ")" : ""}`.trim());
+    if (h.gravando) partes.push(`gravando ${h.gravando_s != null ? duracao(h.gravando_s + idade) : ""}${h.etapa ? " (" + nomeAtividade(h.etapa).toLowerCase() + ")" : ""}`.trim());
     ponto.className = h.contato === 0 || !h.fc ? "ponto alerta" : "ponto ok";
     est.textContent = partes.join(" · ");
     return h.fc ? h : null;
@@ -416,20 +522,149 @@ function desenharH10(s) {
   return null;
 }
 
+// ---------- Cinta Polar H10 pelo painel (06/11) ----------
+let cintaConectada = false;
+const NOMES_ACAO = { h10_conectar: "Conectar a cinta", h10_desconectar: "Desconectar a cinta", h10_iniciar: "Iniciar a gravação da cinta",
+                     h10_parar: "Parar a gravação da cinta", marcar: "Marcar", parar_medicao: "Parar a medição" };
+function mostrar(id, sim) { document.getElementById(id).classList.toggle("oculto", !sim); }
+function mostrarMsg(id, txt, cls) { const m = document.getElementById(id); m.className = "msg" + (cls ? " " + cls : ""); m.textContent = txt || ""; }
+function acaoOcupada() { return (dados && dados.acoes || []).some(a => ["pendente", "executando"].includes(a.estado)); }
+function ultimaAcao(nomes) { return (dados && dados.acoes || []).find(a => nomes.includes(a.parametros && a.parametros.acao)); }
+
+/** Frase de uma ação: aguardando / feita às HH:MM:SS / erro. null se for antiga (mais de 2 min). */
+function textoAcao(a) {
+  if (!a) return null;
+  const par = a.parametros || {}, r = a.resultado || {};
+  let nome = NOMES_ACAO[par.acao] || par.acao;
+  if (par.acao === "marcar" && par.etapa && par.etapa !== "marca") nome = "Atividade " + nomeAtividade(par.etapa);
+  if (["pendente", "executando"].includes(a.estado)) return [nome + ": enviado ao celular, aguardando…", ""];
+  if (segDesde(a.concluido_em || a.criado_em) > 120) return null;
+  if (a.estado === "concluido") {
+    const quando = r.ms ? fmtHoraSeg.format(new Date(r.ms)) : fmtHoraSeg.format(new Date(a.concluido_em));
+    if (par.acao === "h10_conectar") return [`${nome}: o celular está procurando a cinta${r.id ? " " + r.id : ""}…`, "ok"];
+    return [`${nome}: feito às ${quando}${r.onde ? " (" + r.onde + ")" : ""}.`, "ok"];
+  }
+  return [`${nome}: não foi possível — ${a.erro || a.estado}.`, "erro"];
+}
+
+function desenharCinta(s) {
+  const h = s && s.h10, idade = s ? s.h10_segundos_atras : null;
+  const online = !!s && s.segundos_atras <= 45;
+  const fresca = online && !!h && idade != null && idade <= 45;   // sem notícia com o celular online = desconectada
+  const est = fresca ? h.estado : "DESCONECTADO";
+  const conectada = est === "CONECTADO", grav = fresca && !!h.gravando, remoto = grav && !!h.remoto;
+  const antigo = fresca && !h.v, ocupado = acaoOcupada() || pedindo;
+  cintaConectada = conectada && !grav;
+  const ponto = document.getElementById("cPonto"), estado = document.getElementById("cEstado");
+  let txt;
+  if (!online) { ponto.className = "ponto"; txt = s ? `Celular fora do ar (${ha(s.segundos_atras)}): não dá para controlar a cinta agora.` : "O celular ainda não se conectou à nuvem."; }
+  else if (est === "DESCONECTADO") {
+    ponto.className = "ponto";
+    txt = !h ? "Desconectada. A cinta ainda não se conectou a este celular." : "Desconectada." + (fresca && h.status && h.status !== "Cinta desconectada." ? " " + h.status : "");
+  } else if (conectada) {
+    ponto.className = "ponto " + (h.parados || h.contato === 0 ? "alerta" : "ok");
+    txt = [`Conectada · H10 ${h.id || ""}`.trim(), h.bateria != null ? `bateria ${h.bateria}%` : "",
+           grav ? `gravando há ${duracao((h.gravando_s || 0) + idade)}` : ""].filter(Boolean).join(" · ");
+  } else { ponto.className = "ponto alerta"; txt = h.status || "Procurando a cinta…"; }
+  estado.textContent = txt;
+
+  // FC, RR, contato e atividade
+  mostrar("cMini", conectada);
+  if (conectada) {
+    const tile = (r, v, un) => `<div><div class="r">${r}</div><div class="v">${v ?? "—"}${v != null && un ? `<small>${un}</small>` : ""}</div></div>`;
+    document.getElementById("cMini").innerHTML = [
+      tile("FC", h.fc, "bpm"), tile("RR", h.rr, "ms"),
+      tile("Contato", h.contato === 1 ? "ok" : h.contato === 0 ? "sem contato" : "—"),
+      grav ? tile("Atividade", h.etapa ? esc(nomeAtividade(h.etapa)) : "—", "") : "",
+      grav ? tile("Marcas", h.marcas ?? 0, "") : "",
+    ].join("");
+  }
+  // Contadores gravados + taxa ao vivo
+  mostrar("cContagem", grav);
+  if (grav) {
+    const taxa = (n, ativo, t) => ativo ? (t != null ? ` (${t}/s)` : "") : " (aguardando)";
+    const partes = h.n_rr != null ? [`${numInt.format(h.n_rr)} RR`] : [];
+    if (h.ecg) partes.push(`${numInt.format(h.n_ecg || 0)} ECG${taxa(h.n_ecg, h.ecg_ativo, h.taxa_ecg)}`);
+    if (h.acc) partes.push(`${numInt.format(h.n_acc || 0)} ACC${taxa(h.n_acc, h.acc_ativo, h.taxa_acc)}`);
+    document.getElementById("cContagem").textContent = (partes.length ? "Gravado: " + partes.join(" · ") : "Gravando.")
+      + (remoto ? " — junto com a medição do painel (Marcar e Parar ficam na medição, abaixo)." : "");
+  }
+  const al = document.getElementById("cAlerta");
+  mostrar("cAlerta", grav && !!h.parados);
+  if (grav && h.parados) al.textContent = `⚠ ${h.parados} ${h.parados.includes(",") ? "pararam" : "parou"} de chegar há mais de 5 s. Confira a cinta (contato dos eletrodos, distância do celular).`;
+
+  // Controles
+  mostrar("cConectar", online && !conectada);
+  const btCon = document.getElementById("cBtConectar");
+  btCon.textContent = est === "DESCONECTADO" ? "Conectar" : "Cancelar";
+  btCon.onclick = est === "DESCONECTADO"
+    ? () => acao("h10_conectar", { id: document.getElementById("cId").value.trim().toUpperCase() })
+    : () => acao("h10_desconectar");
+  document.getElementById("cId").disabled = est !== "DESCONECTADO";
+  mostrar("cParado", online && conectada && !grav);
+  mostrar("cGravando", online && grav && !remoto);
+  for (const id of ["cBtConectar", "cBtIniciar", "cBtDesconectar", "cBtMarcar", "cBtParar", "cNovaAtividade"]) document.getElementById(id).disabled = ocupado;
+  mostrar("cNota", online && !conectada);
+
+  const msg = textoAcao(ultimaAcao(["h10_conectar", "h10_desconectar", "h10_iniciar", "h10_parar", "marcar"]));
+  if (antigo) mostrarMsg("cMsg", "O app do celular é de antes de 06/11: atualize-o para controlar a cinta pelo painel.", "erro");
+  else if (msg) mostrarMsg("cMsg", msg[0], msg[1]);
+  else if (document.getElementById("cMsg").className !== "msg erro" || !acaoErroLocal) mostrarMsg("cMsg", "");
+  atualizarComCinta();
+}
+
+/** Caixa "+ cinta H10" da medição: some no modo "Só a cinta"; só vale com a cinta conectada e parada. */
+function atualizarComCinta() {
+  const rot = document.getElementById("comCintaRot"), cx = document.getElementById("comCinta");
+  if (!rot) return;
+  rot.style.display = modo === "H10" ? "none" : "inline-flex";
+  cx.disabled = !cintaConectada;
+  rot.style.opacity = cintaConectada ? "1" : ".5";
+  rot.title = cintaConectada ? "Grava a cinta junto, com a mesma atividade e a mesma hora do celular" : "Conecte a cinta acima para gravar junto";
+}
+
+let acaoErroLocal = false;
+async function acao(nome, parametros) {
+  const alvo = ["marcar", "parar_medicao"].includes(nome) && document.getElementById("durante") && !document.getElementById("durante").classList.contains("oculto") ? "mMsg" : "cMsg";
+  acaoErroLocal = false;
+  mostrarMsg(alvo, (NOMES_ACAO[nome] || nome) + ": enviando…");
+  try {
+    await rpc("painel_acao", { p_token: token, p_acao: nome, p_parametros: parametros || {} });
+  } catch (e) {
+    acaoErroLocal = true;
+    mostrarMsg(alvo, `${NOMES_ACAO[nome] || nome}: falha ao enviar — ${e.message}${/painel_acao/.test(e.message) ? " (rode a migração de 06/11 no Supabase)" : ""}`, "erro");
+    return;
+  }
+  vivo();
+}
+
 function desenharComando(c) {
   const bt = document.getElementById("medir"), msg = document.getElementById("msgMedir"), barra = document.getElementById("barra");
   const ocupado = c && ["pendente", "executando"].includes(c.estado);
   msg.className = "msg"; msg.dataset.ocupado = "0"; barra.style.display = "none"; bt.disabled = pedindo || ocupado;
   document.querySelectorAll("#modos input").forEach(r => r.disabled = ocupado);
+  for (const id of ["duracao", "atividadeMed"]) document.getElementById(id).disabled = ocupado;
+  const executando = !!c && c.estado === "executando";
+  mostrar("durante", executando);
+  if (executando) {
+    for (const id of ["mBtMarcar", "mBtParar", "mNovaAtividade"]) document.getElementById(id).disabled = acaoOcupada();
+    const t = textoAcao(ultimaAcao(["marcar", "parar_medicao"]));
+    const a = ultimaAcao(["marcar", "parar_medicao"]);
+    if (t && a && new Date(a.criado_em) >= new Date(c.iniciado_em)) mostrarMsg("mMsg", t[0], t[1]);
+    else if (!acaoErroLocal) mostrarMsg("mMsg", "");
+  }
   if (!c) return textoPadrao();
-  const m = MODOS[c.sensor || "VITAIS"] || { nome: c.sensor, instr: "" };
+  const comCinta = c.sensor !== "H10" && c.parametros && c.parametros.h10;
+  const m0 = MODOS[c.sensor || "VITAIS"] || { nome: c.sensor, instr: "" };
+  const m = comCinta ? { ...m0, nome: m0.nome + " + cinta H10" } : m0;
   const recente = segDesde(c.concluido_em || c.criado_em) < 600;
   msg.dataset.ocupado = "1";
   if (c.estado === "pendente") {
     msg.textContent = `${m.nome}: pedido enviado ${ha(segDesde(c.criado_em))}. Aguardando o celular…`;
   } else if (c.estado === "executando") {
     const passou = segDesde(c.iniciado_em), total = c.duracao_s + 3;
-    msg.textContent = `Medindo ${m.nome}… ${Math.max(0, total - passou)} s restantes. ${m.instr}`;
+    const at = c.parametros && c.parametros.atividade ? ` Atividade: ${nomeAtividade(c.parametros.atividade)}.` : "";
+    msg.textContent = `Medindo ${m.nome}… ${duracao(Math.max(0, total - passou))} restantes.${at} ${m.instr}`;
     barra.style.display = "block"; barra.firstElementChild.style.width = Math.min(100, 100 * passou / total) + "%";
   } else if (c.estado === "concluido" && recente) {
     msg.className = "msg ok";
@@ -444,10 +679,22 @@ function desenharComando(c) {
 /** Frase do fim da medição: medianas dos vitais e/ou o resumo da coleta bruta. */
 function resumoResultado(c, m) {
   const r = c.resultado || {}, hora = fmtHora.format(new Date(c.concluido_em)), partes = [];
-  if (r.fc_mediana != null) partes.push(`FC ${r.fc_mediana} bpm` + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : ""));
+  if (c.sensor !== "H10" && r.fc_mediana != null) partes.push(`FC ${r.fc_mediana} bpm` + (r.fc_min != null ? ` (${r.fc_min}–${r.fc_max})` : ""));
   if (r.spo2_mediana) partes.push(`SpO₂ ${r.spo2_mediana}% (última medida no relógio)`);
   const bruto = (c.sensor || "VITAIS") !== "VITAIS";
-  if (bruto) {
+  const resumoCinta = h => {
+    const p = [];
+    if (h.duracao_s != null && c.sensor === "H10") p.push(`${duracao(h.duracao_s)} gravados`);
+    if (h.n_rr != null) p.push(`${numInt.format(h.n_rr)} RR`);
+    if (h.fc_mediana != null) p.push(`FC ${h.fc_mediana} bpm (${h.fc_min}–${h.fc_max})`);
+    if (h.ecg_hz_estimada != null) p.push(`ECG ${num1.format(h.ecg_hz_estimada)} Hz`);
+    if (h.acc_s != null) p.push(`ACC ${num1.format(h.acc_s)}/s`);
+    if (h.quedas_conexao && c.sensor !== "H10") p.push(`${h.quedas_conexao} ${h.quedas_conexao == 1 ? "queda" : "quedas"} de conexão`);
+    return p.join(", ");
+  };
+  if (c.sensor === "H10") {
+    partes.push(resumoCinta(r));
+  } else if (bruto) {
     if (r.duracao_s != null) partes.push(`${r.duracao_s} s gravados`);
     const taxa = r.imu_taxa_relogio_hz ?? r.ecg_amostras_s ?? r.amostras_s;
     if (taxa != null) partes.push(`${num1.format(taxa)} amostras/s`);
@@ -455,9 +702,14 @@ function resumoResultado(c, m) {
     else if (r.falhas_sequencia) partes.push(`${r.falhas_sequencia} ${r.falhas_sequencia == 1 ? "falha" : "falhas"} de sequência`);
   } else if (r.n != null) partes.push(`${r.n} leituras`);
   if (r.quedas_conexao) partes.push(`${r.quedas_conexao} ${r.quedas_conexao == 1 ? "queda" : "quedas"} de conexão`);
-  let t = `${esc(m.nome)} de ${hora}: ${esc(partes.join(", ") || "concluída")}.`;
+  let t = `${esc(m.nome)} de ${hora}: ${esc(partes.filter(Boolean).join(", ") || "concluída")}.`;
+  if (c.sensor !== "H10" && c.parametros && c.parametros.h10) {
+    t += r.h10 ? `<br>Cinta H10: ${esc(resumoCinta(r.h10) || "sem dados")}.`
+      : `<br><span style="color:var(--alerta)">A cinta não gravou junto (app do celular de antes de 06/11?).</span>`;
+  }
   if (r.aviso) t += ` <span style="color:var(--alerta)">Atenção: ${esc(r.aviso)}.</span>`;
   if (bruto && r.arquivo) t += `<br><span class="sub" style="color:var(--texto-2)">Arquivo no celular: ${esc(r.arquivo)}</span>`;
+  if (r.h10 && r.h10.arquivo && c.sensor !== "H10") t += `<br><span class="sub" style="color:var(--texto-2)">Cinta: ${esc(r.h10.arquivo)}</span>`;
   return t;
 }
 
@@ -495,26 +747,63 @@ function desenharGrafico(ls) {
 async function pedirMedicao() {
   pedindo = true; document.getElementById("medir").disabled = true;
   try {
-    await rpc("painel_pedir_medicao", { p_token: token, p_duracao_s: +document.getElementById("duracao").value, p_sensor: modo });
+    const par = {}, at = document.getElementById("atividadeMed").value;
+    if (at) par.atividade = at;
+    const cinta = { ecg: document.getElementById("cEcg").checked, acc: document.getElementById("cAcc").checked };
+    if (modo === "H10" || (document.getElementById("comCinta").checked && cintaConectada)) par.h10 = cinta;
+    const args = { p_token: token, p_duracao_s: +document.getElementById("duracao").value, p_sensor: modo };
+    if (Object.keys(par).length) args.p_parametros = par;
+    await rpc("painel_pedir_medicao", args);
   } catch (e) {
     const msg = document.getElementById("msgMedir"); msg.className = "msg erro"; msg.textContent = "Falha ao pedir: " + e.message;
   }
-  pedindo = false; atualizar();
+  pedindo = false; vivo();
 }
 
+// Atualização (06/11): completa (painel_dados, com as leituras) a cada 10–15 s; com algo ao vivo (cinta conectada,
+// medição ou ação em andamento), o estado leve (painel_vivo) a cada 3 s entre as completas.
+let ultimaCompleta = 0, semVivo = false;
+function algoAoVivo() {
+  if (!dados) return false;
+  const s = dados.status, h = s && s.h10;
+  const cinta = h && s.h10_segundos_atras <= 45 && s.segundos_atras <= 45 && h.estado !== "DESCONECTADO";
+  const cmd = dados.comandos[0] && ["pendente", "executando"].includes(dados.comandos[0].estado);
+  return cinta || cmd || acaoOcupada();
+}
+function agendar() {
+  clearTimeout(timer);
+  if (falhas) { timer = setTimeout(atualizar, Math.min(30000, 10000 * (1 + falhas))); return; }
+  if (algoAoVivo()) timer = setTimeout(() => (semVivo || Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), semVivo ? 2000 : 3000);
+  else timer = setTimeout(atualizar, 10000);
+}
+function falhou(e) {
+  if (/token/i.test(e.message)) { try { localStorage.removeItem("aegis_token_painel"); } catch (x) {} telaToken("Código inválido. Confira o token_painel."); return true; }
+  falhas++;
+  document.getElementById("estado").textContent = "Sem conexão com a nuvem (" + e.message + "). Tentando de novo…";
+  document.getElementById("ponto").className = "ponto erro";
+  return false;
+}
 async function atualizar() {
   clearTimeout(timer);
   try {
     dados = await rpc("painel_dados", { p_token: token, p_minutos: janelaMin });
-    falhas = 0; desenhar();
+    if (!dados.acoes) dados.acoes = [];
+    falhas = 0; ultimaCompleta = Date.now(); desenhar();
+  } catch (e) { if (falhou(e)) return; }
+  agendar();
+}
+async function vivo() {
+  if (!dados || semVivo) return atualizar();
+  clearTimeout(timer);
+  try {
+    const v = await rpc("painel_vivo", { p_token: token });
+    Object.assign(dados, v);
+    falhas = 0; desenhar(false);
   } catch (e) {
-    if (/token/i.test(e.message)) { try { localStorage.removeItem("aegis_token_painel"); } catch (x) {} return telaToken("Código inválido. Confira o token_painel."); }
-    falhas++;
-    document.getElementById("estado").textContent = "Sem conexão com a nuvem (" + e.message + "). Tentando de novo…";
-    document.getElementById("ponto").className = "ponto erro";
+    if (/painel_vivo/.test(e.message)) { semVivo = true; return atualizar(); }   // migração de 06/11 ainda não rodada
+    if (falhou(e)) return;
   }
-  const ativo = dados && dados.comandos[0] && ["pendente", "executando"].includes(dados.comandos[0].estado);
-  timer = setTimeout(atualizar, ativo ? 2000 : Math.min(30000, 10000 * (1 + falhas)));
+  agendar();
 }
 
 function iniciar() { esqueleto(); atualizar(); }

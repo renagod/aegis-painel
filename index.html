@@ -712,10 +712,30 @@ function desenharAoVivo(s) {
     return;
   }
   const idade = Math.round(t.segundos_atras);
-  const velho = idade > 8;
+  const velho = idade > 8, ppg = verFonte === "relogio_ppg";
+  // PPG: o celular manda 10 s brutos; aqui filtra 0,5–5 Hz, inverte (pulso para cima) e mostra os últimos 8 s
+  const vals = ppg && t.amostras.length > 10 ? filtroPpg(t.amostras, +t.taxa_hz).slice(-Math.round(8 * t.taxa_hz)) : t.amostras;
   info.textContent = [NOMES_VER[verFonte], t.info || "", velho ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
-                      t.amostras.length ? `${num1.format(t.amostras.length / t.taxa_hz)} s` : ""].filter(Boolean).join(" · ");
-  desenharTracado(t.amostras, verFonte === "relogio_ppg" ? "var(--linha)" : "var(--h10)", velho);
+                      vals.length ? `${num1.format(vals.length / t.taxa_hz)} s` + (ppg ? " (filtrado 0,5–5 Hz)" : "") : ""].filter(Boolean).join(" · ");
+  desenharTracado(vals, ppg ? "var(--linha)" : "var(--h10)", velho);
+}
+
+/** Mesmo filtro do app (FiltroPpg.java) e do comparar_ppg.py: Butterworth 0,5–5 Hz ida e volta; invertido. */
+function filtroPpg(x, fs) {
+  const biquad = (fc, pa) => {
+    const w = 2 * Math.PI * fc / fs, cw = Math.cos(w), al = Math.sin(w) / (2 * Math.SQRT1_2), a0 = 1 + al;
+    const b0 = (pa ? (1 + cw) : (1 - cw)) / 2 / a0, b1 = (pa ? -(1 + cw) : (1 - cw)) / a0;
+    return [b0, b1, b0, -2 * cw / a0, (1 - al) / a0];
+  };
+  const aplicar = (y, c) => {
+    const g = (c[0] + c[1] + c[2]) / (1 + c[3] + c[4]);
+    let x1 = y[0], x2 = y[0], y1 = y[0] * g, y2 = y1;
+    for (let i = 0; i < y.length; i++) { const x0 = y[i], s = c[0] * x0 + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2; x2 = x1; x1 = x0; y2 = y1; y1 = s; y[i] = s; }
+  };
+  const m = x.reduce((a, b) => a + b, 0) / x.length;
+  let y = x.map(v => v - m);
+  for (const c of [biquad(0.5, true), biquad(Math.min(5, fs * 0.45), false)]) { aplicar(y, c); y.reverse(); aplicar(y, c); y.reverse(); }
+  return y.map(v => -v);
 }
 
 function desenharTracado(a, cor, velho) {

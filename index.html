@@ -6,7 +6,7 @@
 <title>Aegis · Painel</title>
 <!--
   Painel do familiar / equipe — PROTÓTIPO (28/10/2026; 29/10: escolha do modo de medição; 05/11: cinta Polar H10;
-  06/11: controle da cinta pelo painel, gravação relógio + cinta, Marcar/Parar, até 15 min). Ver LEIA-ME.md.
+  06/11: controle da cinta pelo painel, gravação relógio + cinta, Marcar/Parar, até 15 min; sinal ao vivo). Ver LEIA-ME.md.
   1. Preencha SUPABASE_URL e CHAVE_PUBLICA abaixo (os mesmos do ConfigNuvem.java do app).
   2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
      (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
@@ -99,6 +99,8 @@
   .perigo { background: var(--perigo); color: #fff; font-weight: 600; }
   .nota { font-size: 12.5px; color: var(--texto-3); margin-top: 10px; }
   .oculto { display: none !important; }
+  #verSeg button:disabled { opacity: .45; cursor: default; }
+  #verSvg svg { margin-top: 6px; border-radius: 10px; background: var(--superficie-alta); }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
   .modos { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -345,6 +347,20 @@ function esqueleto() {
       <div class="nota" id="cNota">Conectar pelo painel: a cinta precisa estar no peito (ela só liga com o batimento), com os eletrodos molhados, e perto do celular. O app Aegis precisa estar aberto ou em 2º plano com a nuvem ligada.</div>
     </div>
 
+    <div class="acao" id="aoVivo">
+      <div class="rotulo">Sinal ao vivo</div>
+      <div class="seg" id="verSeg" role="group" aria-label="Sinal ao vivo">
+        <button data-f="h10_ecg" aria-pressed="false">ECG da cinta</button>
+        <button data-f="relogio_ppg" aria-pressed="false">PPG do relógio</button>
+        <button data-f="relogio_ecg" aria-pressed="false">ECG do relógio</button>
+      </div>
+      <div id="verArea" class="oculto">
+        <div id="verSvg"></div>
+        <div class="msg" id="verInfo" style="margin-top:6px"></div>
+      </div>
+      <div class="nota">Mostra os últimos segundos do sinal, atualizados a cada ~2 s, só enquanto este painel estiver aberto e olhando; fechou, o celular para sozinho em ~20 s. Na nuvem fica só o último trecho. Uso em teste com o próprio pesquisador: com participantes, precisa constar no CEP/TCLE.</div>
+    </div>
+
     <div class="acao">
       <div class="rotulo">Modo de medição</div>
       <div class="modos" id="modos" role="radiogroup" aria-label="Modo de medição"></div>
@@ -423,6 +439,7 @@ function esqueleto() {
   ligarPref("cAtividade", "aegis_atividade", "");
   ligarPref("atividadeMed", "aegis_atividade_med", "");
   ligarPref("comCinta", "aegis_com_cinta", false);
+  ligarAoVivo();
   document.getElementById("cBtConectar").onclick = () => acao("h10_conectar", { id: document.getElementById("cId").value.trim().toUpperCase() });
   document.getElementById("cBtDesconectar").onclick = () => acao("h10_desconectar");
   document.getElementById("cBtIniciar").onclick = () => {
@@ -464,6 +481,7 @@ function desenhar(completo = true) {
 
   const h10 = desenharH10(s);
   desenharCinta(s);
+  desenharAoVivo(s);
 
   // Cartões com a última leitura (do relógio; a H10 tem o cartão dela)
   const u = d.ultima_leitura;
@@ -574,7 +592,8 @@ function desenharCinta(s) {
     const tile = (r, v, un) => `<div><div class="r">${r}</div><div class="v">${v ?? "—"}${v != null && un ? `<small>${un}</small>` : ""}</div></div>`;
     document.getElementById("cMini").innerHTML = [
       tile("FC", h.fc, "bpm"), tile("RR", h.rr, "ms"),
-      tile("Contato", h.contato === 1 ? "ok" : h.contato === 0 ? "sem contato" : "—"),
+      // a H10 só informa o contato com ECG/ACC ligado (gravando ou vendo o ECG) — 06/11
+      h.contato === 1 || h.contato === 0 ? tile("Contato", h.contato === 1 ? "ok" : "sem contato") : tile("Contato (só c/ ECG)", "—"),
       grav ? tile("Atividade", h.etapa ? esc(nomeAtividade(h.etapa)) : "—", "") : "",
       grav ? tile("Marcas", h.marcas ?? 0, "") : "",
     ].join("");
@@ -582,7 +601,7 @@ function desenharCinta(s) {
   // Contadores gravados + taxa ao vivo
   mostrar("cContagem", grav);
   if (grav) {
-    const taxa = (n, ativo, t) => ativo ? (t != null ? ` (${t}/s)` : "") : " (aguardando)";
+    const taxa = (n, ativo, t) => ativo && n > 0 ? (t != null ? ` (${t}/s)` : "") : " (aguardando)";
     const partes = h.n_rr != null ? [`${numInt.format(h.n_rr)} RR`] : [];
     if (h.ecg) partes.push(`${numInt.format(h.n_ecg || 0)} ECG${taxa(h.n_ecg, h.ecg_ativo, h.taxa_ecg)}`);
     if (h.acc) partes.push(`${numInt.format(h.n_acc || 0)} ACC${taxa(h.n_acc, h.acc_ativo, h.taxa_acc)}`);
@@ -636,6 +655,81 @@ async function acao(nome, parametros) {
     return;
   }
   vivo();
+}
+
+// ---------- Sinal ao vivo (06/11, 2ª parte) ----------
+let verFonte = null, verErro = null;
+const NOMES_VER = { h10_ecg: "ECG da cinta", relogio_ppg: "PPG do relógio", relogio_ecg: "ECG do relógio" };
+
+function ligarAoVivo() {
+  document.querySelectorAll("#verSeg button").forEach(b => b.onclick = () => ver(b.dataset.f));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && verFonte) vivo(); });
+}
+
+async function ver(f) {
+  if (f === verFonte) return pararDeVer();
+  verFonte = f; verErro = null;
+  desenharAoVivo(dados && dados.status);
+  document.getElementById("verInfo").textContent = `${NOMES_VER[f]}: pedindo ao celular…`;
+  try {
+    await rpc("painel_acao", { p_token: token, p_acao: "ver", p_parametros: { fonte: f } });
+  } catch (e) {
+    verErro = /desconhecida|ver/.test(e.message) && /a[cç][aã]o|sinal/.test(e.message)
+      ? "Falta rodar a migração 06/11b (traçado) no Supabase." : "Falha ao pedir: " + e.message;
+  }
+  vivo();
+}
+
+function pararDeVer() {
+  verFonte = null; verErro = null;
+  rpc("painel_vivo", { p_token: token, p_ver: "" }).catch(() => {});
+  desenharAoVivo(dados && dados.status);
+}
+
+/** Botões (o que dá para ver agora) e o traçado do último trecho que o celular mandou. */
+function desenharAoVivo(s) {
+  const online = !!s && s.segundos_atras <= 45, h = s && s.h10;
+  const cinta = online && h && s.h10_segundos_atras <= 45 && h.estado === "CONECTADO";
+  const relogio = online && s.conexao === "CONECTADO";
+  const gravandoOutro = relogio && s.sensor && !["PPG-ACC", "ECG"].includes(s.sensor);
+  const pode = { h10_ecg: cinta, relogio_ppg: relogio && !gravandoOutro, relogio_ecg: relogio && !gravandoOutro };
+  const motivo = { h10_ecg: "Conecte a cinta", relogio_ppg: gravandoOutro ? "O relógio está gravando outro modo" : "Relógio desconectado",
+                   relogio_ecg: gravandoOutro ? "O relógio está gravando outro modo" : "Relógio desconectado" };
+  document.querySelectorAll("#verSeg button").forEach(b => {
+    const f = b.dataset.f;
+    b.setAttribute("aria-pressed", f === verFonte);
+    b.disabled = !pode[f] && f !== verFonte;
+    b.title = pode[f] ? (f === verFonte ? "Parar de ver" : "Ver " + NOMES_VER[f]) : motivo[f];
+  });
+  mostrar("verArea", !!verFonte);
+  if (!verFonte) return;
+  const t = dados && dados.tracado, info = document.getElementById("verInfo");
+  if (verErro) { info.className = "msg erro"; info.textContent = verErro; return; }
+  info.className = "msg";
+  if (!t || t.fonte !== verFonte) {
+    info.textContent = `${NOMES_VER[verFonte]}: aguardando o celular…`;
+    document.getElementById("verSvg").innerHTML = "";
+    return;
+  }
+  const idade = Math.round(t.segundos_atras);
+  const velho = idade > 8;
+  info.textContent = [NOMES_VER[verFonte], t.info || "", velho ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
+                      t.amostras.length ? `${num1.format(t.amostras.length / t.taxa_hz)} s` : ""].filter(Boolean).join(" · ");
+  desenharTracado(t.amostras, verFonte === "relogio_ppg" ? "var(--linha)" : "var(--h10)", velho);
+}
+
+function desenharTracado(a, cor, velho) {
+  const alvo = document.getElementById("verSvg");
+  if (!a || a.length < 2) { alvo.innerHTML = ""; return; }
+  const W = Math.max(300, alvo.clientWidth || 700), H = 120, m = 6;
+  let lo = Math.min(...a), hi = Math.max(...a);
+  const amp = Math.max(hi - lo, 1); lo -= amp * 0.08; hi += amp * 0.08;
+  const x = i => m + i * (W - 2 * m) / (a.length - 1), y = v => m + (hi - v) / (hi - lo) * (H - 2 * m);
+  let d = "";
+  a.forEach((v, i) => { d += (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1); });
+  let g = "";
+  for (let k = 1; k < 4; k++) g += `<line x1="${W * k / 4}" x2="${W * k / 4}" y1="0" y2="${H}" stroke="var(--grade)"/>`;
+  alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Sinal ao vivo">${g}<path d="${d}" fill="none" stroke="${cor}" stroke-width="1.6" stroke-linejoin="round" opacity="${velho ? .45 : 1}"/></svg>`;
 }
 
 function desenharComando(c) {
@@ -773,6 +867,7 @@ function algoAoVivo() {
 function agendar() {
   clearTimeout(timer);
   if (falhas) { timer = setTimeout(atualizar, Math.min(30000, 10000 * (1 + falhas))); return; }
+  if (verFonte && !semVivo) { timer = setTimeout(() => (Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), 2000); return; }
   if (algoAoVivo()) timer = setTimeout(() => (semVivo || Date.now() - ultimaCompleta > 15000 ? atualizar() : vivo()), semVivo ? 2000 : 3000);
   else timer = setTimeout(atualizar, 10000);
 }
@@ -786,8 +881,10 @@ function falhou(e) {
 async function atualizar() {
   clearTimeout(timer);
   try {
+    const tracado = dados && dados.tracado;   // a completa não traz o traçado: guarda o último
     dados = await rpc("painel_dados", { p_token: token, p_minutos: janelaMin });
     if (!dados.acoes) dados.acoes = [];
+    if (verFonte && tracado) dados.tracado = tracado;
     falhas = 0; ultimaCompleta = Date.now(); desenhar();
   } catch (e) { if (falhou(e)) return; }
   agendar();
@@ -796,7 +893,16 @@ async function vivo() {
   if (!dados || semVivo) return atualizar();
   clearTimeout(timer);
   try {
-    const v = await rpc("painel_vivo", { p_token: token });
+    const args = { p_token: token };
+    if (verFonte && !document.hidden) args.p_ver = verFonte;
+    let v;
+    try { v = await rpc("painel_vivo", args); }
+    catch (e) {
+      if (!args.p_ver || !/p_ver|painel_vivo/.test(e.message)) throw e;
+      verErro = "Falta rodar a migração 06/11b (traçado) no Supabase.";   // painel_vivo antigo, sem p_ver
+      v = await rpc("painel_vivo", { p_token: token });
+    }
+    if (!verFonte) v.tracado = null;
     Object.assign(dados, v);
     falhas = 0; desenhar(false);
   } catch (e) {

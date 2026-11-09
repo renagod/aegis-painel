@@ -342,7 +342,7 @@ function esqueleto() {
       <div class="contagem oculto" id="cContagem"></div>
       <div class="alerta-sinal oculto" id="cAlerta" role="alert"></div>
       <div class="controles" id="cConectar">
-        <input type="text" id="cId" maxlength="10" placeholder="ID (vazio = a salva)" aria-label="ID da cinta" spellcheck="false" autocomplete="off">
+        <input type="text" id="cId" maxlength="10" placeholder="ID (ou a salva)" aria-label="ID da cinta" spellcheck="false" autocomplete="off">
         <button class="botao" id="cBtConectar">Conectar</button>
       </div>
       <div class="controles oculto" id="cParado">
@@ -613,6 +613,7 @@ function desenharCinta(s) {
   mostrar("cConectar", online && !conectada);
   const btCon = document.getElementById("cBtConectar");
   btCon.textContent = est === "DESCONECTADO" ? "Conectar" : "Cancelar";
+  btCon.className = est === "DESCONECTADO" ? "botao" : "secundario";   // 09/11: Cancelar discreto, como no relógio
   btCon.onclick = est === "DESCONECTADO"
     ? () => acao("h10_conectar", { id: document.getElementById("cId").value.trim().toUpperCase() })
     : () => acao("h10_desconectar");

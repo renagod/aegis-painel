@@ -484,16 +484,19 @@ function desenhar(completo = true) {
   // SpO2: o 0x64 só repassa a última SpO2 medida no menu Blood Oxygen do relógio (02/11); sem ela vem 0 (null no banco).
   const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
   const cartaoH10 = h10 ? cartao("FC · cinta H10", h10.fc, "bpm", "referência") : "";
+  // 09/11: FC calculada pelo app a partir do PPG do relógio (FcPpg.java), enquanto o PPG chega
+  const pp = ppgVivo(s), cartaoPpg = pp ? cartao("FC · PPG do relógio", pp.fc ?? null, "bpm", pp.fc != null ? "nosso cálculo" : (MOTIVO_PPG[pp.qualidade] || "sem FC")) : "";
   // Leitura do relógio com mais de 10 min: esmaecida e com a idade no selo (06/11), para não parecer ao vivo
   const idadeU = u ? segDesde(u.medido_em) : null, velho = idadeU != null && idadeU > 600;
   const selo = base => [base, velho ? ha(idadeU) : ""].filter(Boolean).join(" · ");
   document.getElementById("cartoes").innerHTML = u ? [
     cartao("Freq. cardíaca", u.fc, "bpm", selo(h10 ? "relógio" : ""), velho),
     cartaoH10,
+    cartaoPpg,
     comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? (velho ? " · " + ha(idadeU) : "") : " · " + ha(segDesde(comSpo2.medido_em))), velho) : "",
     cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C", selo(""), velho),
     cartao("Respiração", u.resp, "/min", selo("estimada"), velho),
-  ].join("") : cartaoH10 || `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
+  ].join("") : (cartaoH10 + cartaoPpg) || `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
   document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
 
   desenharComando(d.comandos[0]);
@@ -503,6 +506,13 @@ function desenhar(completo = true) {
     <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.fc_mediana != null ? `FC ${x.fc_mediana} bpm` : "", x.sinais_parados ? `sinal parou ${x.sinais_parados}×` : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
         <span class="sub" style="text-align:right">${fmtDataHora.format(new Date(x.recebido_em))}${x.quedas_conexao ? `<br>${x.quedas_conexao} ${x.quedas_conexao == 1 ? "queda" : "quedas"} de conexão` : ""}</span></li>`).join("")
     : `<li class="sub">Nenhuma coleta enviada ainda.</li>`;
+}
+
+const MOTIVO_PPG = { movimento: "braço mexendo", irregular: "pulsos irregulares", pouco: "sinal curto" };
+/** FC do PPG mandada pelo app (celular_ppg, 09/11) se ainda vale: PPG ativo, chegou há ≤ 15 s e celular online. */
+function ppgVivo(s) {
+  const p = s && s.ppg;
+  return p && p.ativo && s.segundos_atras <= 45 && segDesde(s.ppg_em) <= 15 ? p : null;
 }
 
 function duracao(seg) {
@@ -1098,7 +1108,7 @@ function algoAoVivo() {
   const s = dados.status, h = s && s.h10;
   const cinta = h && s.h10_segundos_atras <= 45 && s.segundos_atras <= 45 && h.estado !== "DESCONECTADO";
   const cmd = dados.comandos[0] && ["pendente", "executando"].includes(dados.comandos[0].estado);
-  return cinta || cmd || acaoOcupada();
+  return cinta || cmd || acaoOcupada() || !!ppgVivo(s);
 }
 function agendar() {
   clearTimeout(timer);

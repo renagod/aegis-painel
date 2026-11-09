@@ -324,6 +324,17 @@ function esqueleto() {
     <div class="grade" id="cartoes"></div>
     <div class="quando" id="quando"></div>
 
+    <div class="acao cinta" id="relogio">
+      <div class="topo"><span class="ponto" id="rPonto"></span><span class="titulo">Relógio iSmarch</span></div>
+      <div class="sub" id="rEstado">…</div>
+      <div class="controles" id="rControles">
+        <input type="text" id="rMac" maxlength="17" placeholder="MAC (opcional)" aria-label="MAC do relógio" spellcheck="false" autocomplete="off">
+        <button class="botao" id="rBtConectar">Conectar</button>
+      </div>
+      <div class="msg" id="rMsg" style="margin-top:10px"></div>
+      <div class="nota" id="rNota">Conectar pelo painel: o relógio precisa estar ligado e perto do celular. Sem MAC, o celular usa o último relógio salvo no app.</div>
+    </div>
+
     <div class="acao cinta" id="cinta">
       <div class="topo"><span class="ponto" id="cPonto"></span><span class="titulo">Cinta Polar H10</span><span class="selo">referência</span></div>
       <div class="sub" id="cEstado">…</div>
@@ -464,6 +475,7 @@ function desenhar(completo = true) {
   else { ponto.className = "ponto ok"; est.textContent = `Celular online · relógio conectado${s.sensor ? " · gravando " + s.sensor : ""}`; }
 
   const h10 = desenharH10(s);
+  desenharRelogio(s);
   desenharCinta(s);
   desenharAoVivo(s);
 
@@ -526,7 +538,8 @@ function desenharH10(s) {
 // ---------- Cinta Polar H10 pelo painel (06/11) ----------
 let cintaConectada = false;
 const NOMES_ACAO = { h10_conectar: "Conectar a cinta", h10_desconectar: "Desconectar a cinta", h10_iniciar: "Iniciar a gravação da cinta",
-                     h10_parar: "Parar a gravação da cinta", marcar: "Marcar", parar_medicao: "Parar a medição" };
+                     h10_parar: "Parar a gravação da cinta", marcar: "Marcar", parar_medicao: "Parar a medição",
+                     relogio_conectar: "Conectar o relógio", relogio_desconectar: "Desconectar o relógio" };
 function mostrar(id, sim) { document.getElementById(id).classList.toggle("oculto", !sim); }
 function mostrarMsg(id, txt, cls) { const m = document.getElementById(id); m.className = "msg" + (cls ? " " + cls : ""); m.textContent = txt || ""; }
 function acaoOcupada() { return (dados && dados.acoes || []).some(a => ["pendente", "executando"].includes(a.estado)); }
@@ -543,6 +556,7 @@ function textoAcao(a) {
   if (a.estado === "concluido") {
     const quando = r.ms ? fmtHoraSeg.format(new Date(r.ms)) : fmtHoraSeg.format(new Date(a.concluido_em));
     if (par.acao === "h10_conectar") return [`${nome}: o celular está procurando a cinta${r.id ? " " + r.id : ""}…`, "ok"];
+    if (par.acao === "relogio_conectar") return [`${nome}: o celular está procurando o relógio${r.id ? " " + r.id : ""}…`, "ok"];
     return [`${nome}: feito às ${quando}${r.onde ? " (" + r.onde + ")" : ""}.`, "ok"];
   }
   return [`${nome}: não foi possível — ${a.erro || a.estado}.`, "erro"];
@@ -608,11 +622,50 @@ function desenharCinta(s) {
   for (const id of ["cBtConectar", "cBtIniciar", "cBtDesconectar", "cBtMarcar", "cBtParar", "cNovaAtividade"]) document.getElementById(id).disabled = ocupado;
   mostrar("cNota", online && !conectada);
 
-  const msg = textoAcao(ultimaAcao(["h10_conectar", "h10_desconectar", "h10_iniciar", "h10_parar", "marcar"]));
+  const ult = ultimaAcao(["h10_conectar", "h10_desconectar", "h10_iniciar", "h10_parar", "marcar"]);
+  // 09/11: "procurando a cinta…" some quando ela conecta (o estado acima já diz "Conectada")
+  const msg = ult && ult.estado === "concluido" && ult.parametros.acao === "h10_conectar" && conectada ? null : textoAcao(ult);
   if (antigo) mostrarMsg("cMsg", "O app do celular é de antes de 06/11: atualize-o para controlar a cinta pelo painel.", "erro");
   else if (msg) mostrarMsg("cMsg", msg[0], msg[1]);
   else if (document.getElementById("cMsg").className !== "msg erro" || !acaoErroLocal) mostrarMsg("cMsg", "");
   atualizarComCinta();
+}
+
+// ---------- Relógio pelo painel (09/11) ----------
+function desenharRelogio(s) {
+  const online = !!s && s.segundos_atras <= 45, est = online ? (s.conexao || "DESCONECTADO") : null;
+  const ponto = document.getElementById("rPonto"), ocupado = acaoOcupada() || pedindo;
+  const id = s && s.relogio ? ` ${s.relogio}` : "";
+  let txt;
+  if (!online) { ponto.className = "ponto"; txt = s ? `Celular fora do ar (${ha(s.segundos_atras)}): não dá para controlar o relógio agora.` : "O celular ainda não se conectou à nuvem."; }
+  else if (est === "CONECTADO") { ponto.className = "ponto ok"; txt = [`Conectado · relógio${id}`, s.rssi ? `sinal ${s.rssi} dBm` : "", s.sensor ? `gravando ${s.sensor}` : ""].filter(Boolean).join(" · "); }
+  else if (est === "DESCONECTADO") { ponto.className = "ponto"; txt = "Desconectado."; }
+  else { ponto.className = "ponto alerta"; txt = { PROCURANDO: "Procurando o relógio", CONECTANDO: "Conectando ao relógio", RECONECTANDO: "Reconectando ao relógio" }[est] + id + "…"; }
+  document.getElementById("rEstado").textContent = txt;
+
+  mostrar("rControles", online);
+  const bt = document.getElementById("rBtConectar"), mac = document.getElementById("rMac");
+  mostrar("rMac", est === "DESCONECTADO");
+  if (est === "DESCONECTADO") {
+    bt.textContent = "Conectar"; bt.className = "botao";
+    bt.onclick = () => acao("relogio_conectar", { mac: mac.value.trim().toUpperCase() });
+  } else if (est === "CONECTADO") {
+    bt.textContent = "Desconectar"; bt.className = "secundario";
+    bt.onclick = () => { if (confirm("Desconectar o relógio do celular?")) acao("relogio_desconectar"); };
+  } else {
+    bt.textContent = "Cancelar"; bt.className = "secundario";
+    bt.onclick = () => acao("relogio_desconectar");
+  }
+  const gravando = est === "CONECTADO" && !!s.sensor;
+  bt.disabled = ocupado || gravando;
+  bt.title = gravando ? "O relógio está gravando; pare a coleta antes de desconectar" : "";
+  mac.disabled = ocupado;
+  mostrar("rNota", online && est === "DESCONECTADO");
+
+  const ult = ultimaAcao(["relogio_conectar", "relogio_desconectar"]);
+  const msg = ult && ult.estado === "concluido" && ult.parametros.acao === "relogio_conectar" && est === "CONECTADO" ? null : textoAcao(ult);
+  if (msg) mostrarMsg("rMsg", msg[0], msg[1]);
+  else if (document.getElementById("rMsg").className !== "msg erro" || !acaoErroLocal) mostrarMsg("rMsg", "");
 }
 
 /** Caixa "+ cinta H10" da medição: some no modo "Só a cinta"; só vale com a cinta conectada e parada. */
@@ -627,14 +680,15 @@ function atualizarComCinta() {
 
 let acaoErroLocal = false;
 async function acao(nome, parametros) {
-  const alvo = ["marcar", "parar_medicao"].includes(nome) && document.getElementById("durante") && !document.getElementById("durante").classList.contains("oculto") ? "mMsg" : "cMsg";
+  const alvo = nome.startsWith("relogio_") ? "rMsg"
+    : ["marcar", "parar_medicao"].includes(nome) && document.getElementById("durante") && !document.getElementById("durante").classList.contains("oculto") ? "mMsg" : "cMsg";
   acaoErroLocal = false;
   mostrarMsg(alvo, (NOMES_ACAO[nome] || nome) + ": enviando…");
   try {
     await rpc("painel_acao", { p_token: token, p_acao: nome, p_parametros: parametros || {} });
   } catch (e) {
     acaoErroLocal = true;
-    mostrarMsg(alvo, `${NOMES_ACAO[nome] || nome}: falha ao enviar — ${e.message}${/painel_acao/.test(e.message) ? " (rode a migração de 06/11 no Supabase)" : ""}`, "erro");
+    mostrarMsg(alvo, `${NOMES_ACAO[nome] || nome}: falha ao enviar — ${e.message}${/ação desconhecida: relogio_/.test(e.message) ? " (rode a migração de 09/11 no Supabase)" : /painel_acao/.test(e.message) ? " (rode a migração de 06/11 no Supabase)" : ""}`, "erro");
     return;
   }
   vivo();

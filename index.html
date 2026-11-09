@@ -101,7 +101,8 @@
   .oculto { display: none !important; }
   #verSeg button:disabled { opacity: .45; cursor: default; }
   .verItem svg { margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
-  .verItem canvas { display: block; width: 100%; height: 120px; margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
+  .verItem canvas { display: block; width: 100%; height: 200px; margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
+  @media (max-width: 600px) { .verItem canvas { height: 160px; } }
   .verItem .msg { margin-top: 4px; }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
@@ -743,7 +744,7 @@ function filtroPpg(x, fs) {
 
 function desenharTracado(alvo, a, cor, velho) {
   if (!a || a.length < 2) { alvo.innerHTML = ""; return; }
-  const W = Math.max(300, alvo.clientWidth || 700), H = 120, m = 6;
+  const W = Math.max(300, alvo.clientWidth || 700), H = 200, m = 6;   // 09/11: mesma altura do canvas ao vivo
   let lo = Math.min(...a), hi = Math.max(...a);
   const amp = Math.max(hi - lo, 1); lo -= amp * 0.08; hi += amp * 0.08;
   const x = i => m + i * (W - 2 * m) / (a.length - 1), y = v => m + (hi - v) / (hi - lo) * (H - 2 * m);
@@ -910,7 +911,7 @@ function rtQuadro(agora) {
 }
 
 function rtDesenhar(cv, st, cor, grade, parado) {
-  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 600, H = cv.clientHeight || 120;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 600, H = cv.clientHeight || 200;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

@@ -101,6 +101,7 @@
   .oculto { display: none !important; }
   #verSeg button:disabled { opacity: .45; cursor: default; }
   .verItem svg { margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
+  .verItem canvas { display: block; width: 100%; height: 120px; margin-top: 10px; border-radius: 10px; background: var(--superficie-alta); }
   .verItem .msg { margin-top: 4px; }
   .aviso { margin-top: 28px; font-size: 12.5px; color: var(--texto-2); background: var(--superficie-alta); border-radius: 12px; padding: 12px 14px; }
   .rotulo { font-size: 13px; color: var(--texto-2); margin: 0 2px 8px; }
@@ -359,7 +360,7 @@ function esqueleto() {
         <div id="verGraficos"></div>
         <div class="msg erro oculto" id="verErro" style="margin-top:6px"></div>
       </div>
-      <div class="nota">Mostra os últimos segundos do sinal, atualizados a cada ~2 s, só enquanto este painel estiver aberto e olhando; fechou, o celular para sozinho em ~20 s. Na nuvem fica só o último trecho. Uso em teste com o próprio pesquisador: com participantes, precisa constar no CEP/TCLE.</div>
+      <div class="nota">Mostra o sinal rolando, ~0,6 s atrás do celular (com o app atualizado; senão, os últimos segundos a cada ~2 s), só enquanto este painel estiver aberto e olhando; fechou, o celular para sozinho em ~20 s. Na nuvem fica só o último trecho. Uso em teste com o próprio pesquisador: com participantes, precisa constar no CEP/TCLE.</div>
     </div>
 
     <div class="acao">
@@ -654,9 +655,10 @@ async function ver(f) {
   if (f.startsWith("relogio_")) verFontes = verFontes.filter(x => !x.startsWith("relogio_"));
   verFontes = [...verFontes, f].sort((a, b) => Object.keys(NOMES_VER).indexOf(a) - Object.keys(NOMES_VER).indexOf(b));
   verErro = null;
+  rtConectar();
   desenharAoVivo(dados && dados.status);
   try {
-    await rpc("painel_acao", { p_token: token, p_acao: "ver", p_parametros: { fonte: f } });
+    await rpc("painel_acao", { p_token: token, p_acao: "ver", p_parametros: { fonte: f, canal: CANAL_VIVO } });
   } catch (e) {
     verErro = /desconhecida|ver/.test(e.message) && /a[cç][aã]o|sinal/.test(e.message)
       ? "Falta rodar a migração 06/11b (traçado) no Supabase." : "Falha ao pedir: " + e.message;
@@ -666,6 +668,8 @@ async function ver(f) {
 
 function pararDeVer(f) {
   verFontes = verFontes.filter(x => x !== f);
+  delete rt.fontes[f];
+  if (!verFontes.length) rtDesligar();
   verErro = null;
   rpc("painel_vivo", { p_token: token, p_ver: verFontes.join(",") }).catch(() => {});
   if (dados && dados.tracados) dados.tracados = dados.tracados.filter(t => t.fonte !== f);
@@ -699,6 +703,14 @@ function desenharAoVivo(s) {
   const lista = (dados && dados.tracados) || (dados && dados.tracado ? [dados.tracado] : []);
   for (const f of verFontes) {
     const item = area.querySelector(`.verItem[data-f="${f}"]`), info = item.querySelector(".msg"), alvo = item.querySelector(".svg");
+    if (rtAoVivo(f)) {   // 09/11: chegando pelo Realtime: o canvas rola sozinho (rtQuadro), aqui só o texto
+      const st = rt.fontes[f];
+      if (!alvo.querySelector("canvas")) alvo.innerHTML = "<canvas></canvas>";
+      info.textContent = [NOMES_VER[f], st.info ? st.info : "", `ao vivo, ~${num1.format(ATRASO_S)} s atrás do celular`,
+                          f === "relogio_ppg" ? "filtrado 0,5–5 Hz" : ""].filter(Boolean).join(" · ");
+      continue;
+    }
+    if (alvo.querySelector("canvas")) alvo.innerHTML = "";
     const t = lista.find(x => x && x.fonte === f);
     if (!t) { info.textContent = `${NOMES_VER[f]}: aguardando o celular…`; alvo.innerHTML = ""; continue; }
     const idade = Math.round(t.segundos_atras);
@@ -706,7 +718,7 @@ function desenharAoVivo(s) {
     const velho = idade > 8 || !!t.info, ppg = f === "relogio_ppg";
     // PPG: o celular manda 10 s brutos; aqui filtra 0,5–5 Hz, inverte (pulso para cima) e mostra os últimos 8 s
     const vals = ppg && t.amostras.length > 10 ? filtroPpg(t.amostras, +t.taxa_hz).slice(-Math.round(8 * t.taxa_hz)) : t.amostras;
-    info.textContent = [NOMES_VER[f], t.info ? t.info + " (traçado antigo)" : "", idade > 8 ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
+    info.textContent = [NOMES_VER[f], rt.erro && verFontes.length ? "modo de 2 s (" + rt.erro + ")" : "", t.info ? t.info + " (traçado antigo)" : "", idade > 8 ? `sem trecho novo há ${idade} s` : `atualizado há ${idade} s`,
                         vals.length ? `${num1.format(vals.length / t.taxa_hz)} s` + (ppg ? " (filtrado 0,5–5 Hz)" : "") : ""].filter(Boolean).join(" · ");
     desenharTracado(alvo, vals, ppg ? "var(--linha)" : f === "h10_ecg" ? "var(--h10)" : "var(--ok)", velho);
   }
@@ -741,6 +753,195 @@ function desenharTracado(alvo, a, cor, velho) {
   let g = "";
   for (let k = 1; k < 4; k++) g += `<line x1="${W * k / 4}" x2="${W * k / 4}" y1="0" y2="${H}" stroke="var(--grade)"/>`;
   alvo.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Sinal ao vivo">${g}<path d="${d}" fill="none" stroke="${cor}" stroke-width="1.6" stroke-linejoin="round" opacity="${velho ? .45 : 1}"/></svg>`;
+}
+
+// ---------- Sinal ao vivo pelo Realtime do Supabase (09/11: fluido, ~0,6 s atrás do celular) ----------
+// O painel gera um canal aleatório a cada abertura e manda junto com o "ver"; o app novo publica nele 5×/s só as
+// amostras novas (Broadcast, sem passar pelo banco) com o contador total. Aqui: emenda pelo contador, filtra o PPG
+// em fluxo e desenha num canvas que anda continuamente, ATRASO_S atrás da amostra mais nova (folga para a internet).
+// Sem mensagem por 2,5 s (app antigo, Realtime fora): volta sozinho ao traçado de 2 s.
+const CANAL_VIVO = "aegis-" + Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+const ATRASO_S = 0.6, JANELA_S = { h10_ecg: 4, relogio_ppg: 8, relogio_ecg: 4 };
+const rt = { ws: null, ref: 0, hb: null, tentativa: 0, erro: null, fontes: {}, laco: false, ultimoQuadro: 0 };
+
+function rtConectar() {
+  if (rt.ws || !verFontes.length || typeof WebSocket === "undefined") return;
+  const url = SUPABASE_URL.replace(/\/+$/, "").replace(/^http/, "ws") + "/realtime/v1/websocket?apikey="
+            + encodeURIComponent(CHAVE_PUBLICA) + "&vsn=1.0.0";
+  let ws;
+  try { ws = new WebSocket(url); } catch (e) { rt.erro = "sem conexão ao vivo"; return rtDepois(); }
+  rt.ws = ws;
+  const mandar = m => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); };
+  ws.onopen = () => {
+    rt.tentativa = 0;
+    const ref = String(++rt.ref);
+    mandar({ topic: "realtime:" + CANAL_VIVO, event: "phx_join", ref, join_ref: ref,
+             payload: { config: { broadcast: { ack: false, self: false }, presence: { key: "", enabled: false },
+                                  postgres_changes: [], private: false } } });
+    clearInterval(rt.hb);
+    rt.hb = setInterval(() => mandar({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(++rt.ref) }), 25000);
+  };
+  ws.onmessage = ev => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.topic !== "realtime:" + CANAL_VIVO) return;
+    if (m.event === "phx_reply" && m.payload && m.payload.status && m.payload.status !== "ok") {
+      rt.erro = "Realtime recusou: " + JSON.stringify(m.payload.response || m.payload).slice(0, 120);
+    } else if (m.event === "phx_reply") {
+      rt.erro = null;
+    } else if (m.event === "broadcast" && m.payload && m.payload.event === "sinal") {
+      rtChegou(m.payload.payload);
+    }
+  };
+  ws.onerror = () => {};
+  ws.onclose = () => { clearInterval(rt.hb); if (rt.ws === ws) { rt.ws = null; rtDepois(); } };
+}
+
+function rtDepois() {
+  if (!verFontes.length) return;
+  setTimeout(rtConectar, Math.min(15000, 1000 * 2 ** rt.tentativa++));
+}
+
+function rtDesligar() {
+  const ws = rt.ws;
+  rt.ws = null;
+  clearInterval(rt.hb);
+  if (ws) try { ws.close(); } catch (e) { }
+}
+
+/** Coeficientes de um biquad Butterworth (passa-altas ou passa-baixas), como o filtroPpg. */
+function rtBiquad(fc, fs, pa) {
+  const w = 2 * Math.PI * fc / fs, cw = Math.cos(w), al = Math.sin(w) / (2 * Math.SQRT1_2), a0 = 1 + al;
+  const b0 = (pa ? (1 + cw) : (1 - cw)) / 2 / a0, b1 = (pa ? -(1 + cw) : (1 - cw)) / a0;
+  return [b0, b1, b0, -2 * cw / a0, (1 - al) / a0];
+}
+
+function rtNovo(f, hz) {
+  const cap = Math.ceil(hz * 20);
+  const st = { f, hz, cap, buf: new Float64Array(cap).fill(NaN), fim: null, cab: null, ultimaMsg: 0, info: null, lo: null, hi: null, filtro: null, pend: [] };
+  if (f === "relogio_ppg") st.coef = [rtBiquad(0.5, hz, true), rtBiquad(Math.min(5, hz * 0.45), hz, false)];
+  return st;
+}
+
+/** PPG em fluxo: passa-altas 0,5 Hz + passa-baixas 5 Hz (só ida, para não mexer no que já foi desenhado), invertido. */
+function rtFiltrar(st, x) {
+  if (!st.coef) return x;
+  const comeca = !st.filtro;
+  if (comeca) st.filtro = st.coef.map(() => ({}));
+  let v = x;
+  st.coef.forEach((c, i) => {
+    const e = st.filtro[i];
+    if (comeca) {   // parte do regime: sem o degrau do início (cada estágio com a sua entrada)
+      const g = (c[0] + c[1] + c[2]) / (1 + c[3] + c[4]);
+      e.x1 = e.x2 = v; e.y1 = e.y2 = v * g;
+    }
+    const y = c[0] * v + c[1] * e.x1 + c[2] * e.x2 - c[3] * e.y1 - c[4] * e.y2;
+    e.x2 = e.x1; e.x1 = v; e.y2 = e.y1; e.y1 = y; v = y;
+  });
+  return -v;
+}
+
+function rtChegou(carga) {
+  const lista = carga && Array.isArray(carga.s) ? carga.s : [];
+  let novo = false;
+  const agora = performance.now();
+  for (const it of lista) {
+    const f = it.f, hz = +it.hz, fim = +it.fim, a = Array.isArray(it.a) ? it.a : [];
+    if (!verFontes.includes(f) || !(hz > 0) || !Number.isFinite(fim)) continue;
+    let st = rt.fontes[f];
+    if (!st || st.hz !== hz || (st.fim != null && fim < st.fim - st.cap)) st = rt.fontes[f] = rtNovo(f, hz);   // app reiniciou
+    if (st.ultimaMsg === 0 || agora - st.ultimaMsg > 2500) novo = true;
+    st.ultimaMsg = agora;
+    st.info = it.info || null;
+    if (st.fim == null) st.fim = fim - a.length;
+    if (a.length) st.pend.push({ ini: fim - a.length, fim, a, chegou: agora });
+    rtProcessar(st, agora);
+  }
+  if (novo) desenharAoVivo(dados && dados.status);   // troca o traçado de 2 s pelo canvas
+  if (!rt.laco && Object.keys(rt.fontes).length) { rt.laco = true; rt.ultimoQuadro = performance.now(); requestAnimationFrame(rtQuadro); }
+}
+
+/**
+ * Emenda os pedaços na ordem do contador. Pedaço que chega antes do anterior (internet fora de ordem) espera até
+ * 0,4 s pelo que falta; depois disso o buraco fica vazio no traçado.
+ */
+function rtProcessar(st, agora) {
+  st.pend.sort((p, q) => p.ini - q.ini);
+  while (st.pend.length) {
+    const p = st.pend[0];
+    if (p.fim <= st.fim) { st.pend.shift(); continue; }                 // repetido
+    if (p.ini > st.fim) {                                                // falta um pedaço antes deste
+      if (agora - p.chegou < 400) break;
+      for (let j = Math.max(st.fim + 1, p.ini + 1 - st.cap); j <= p.ini; j++) st.buf[j % st.cap] = NaN;
+      st.filtro = null;
+      st.fim = p.ini;
+    }
+    for (let k = st.fim + 1; k <= p.fim; k++) st.buf[k % st.cap] = rtFiltrar(st, +p.a[k - p.ini - 1]);
+    st.fim = p.fim;
+    st.pend.shift();
+    if (st.cab == null) st.cab = st.fim - st.hz * ATRASO_S;
+  }
+}
+
+function rtAoVivo(f) {
+  const st = rt.fontes[f];
+  return !!st && st.cab != null && performance.now() - st.ultimaMsg < 2500;
+}
+
+function rtQuadro(agora) {
+  const dt = Math.min(0.1, Math.max(0, (agora - rt.ultimoQuadro) / 1000));
+  rt.ultimoQuadro = agora;
+  let algum = false;
+  const css = getComputedStyle(document.documentElement);
+  for (const f of verFontes) {
+    const st = rt.fontes[f];
+    if (st && st.pend.length) rtProcessar(st, agora);
+    if (!st || st.cab == null) continue;
+    algum = true;
+    // a cabeça anda no ritmo do sinal e corrige devagar (±20%) para ficar ATRASO_S atrás da amostra mais nova
+    const atras = (st.fim - st.hz * ATRASO_S - st.cab) / st.hz;
+    if (Math.abs(atras) > 2) st.cab = st.fim - st.hz * ATRASO_S;   // aba voltou do segundo plano, internet travou
+    else st.cab += st.hz * dt * (1 + Math.max(-0.2, Math.min(0.2, atras * 0.4)));
+    if (st.cab > st.fim) st.cab = st.fim;
+    const cv = document.querySelector(`.verItem[data-f="${f}"] canvas`);
+    if (cv) rtDesenhar(cv, st, css.getPropertyValue(f === "relogio_ppg" ? "--linha" : f === "h10_ecg" ? "--h10" : "--ok").trim(),
+                       css.getPropertyValue("--grade").trim(), !rtAoVivo(f));
+  }
+  if (algum && verFontes.length) requestAnimationFrame(rtQuadro); else rt.laco = false;
+}
+
+function rtDesenhar(cv, st, cor, grade, parado) {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 600, H = cv.clientHeight || 120;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const n = Math.round((JANELA_S[st.f] || 4) * st.hz), fimJ = st.cab, iniJ = fimJ - n, m = 6;
+  const x = k => (k - iniJ) / n * W;
+  // grade de 1 s que anda junto com o sinal
+  ctx.strokeStyle = grade; ctx.lineWidth = 1; ctx.beginPath();
+  for (let s = Math.ceil(iniJ / st.hz); s * st.hz <= fimJ; s++) { const xx = Math.round(x(s * st.hz)) + 0.5; ctx.moveTo(xx, 0); ctx.lineTo(xx, H); }
+  ctx.stroke();
+  const k0 = Math.max(Math.floor(iniJ), st.fim - st.cap + 1), k1 = Math.min(Math.ceil(fimJ), st.fim);
+  let lo = Infinity, hi = -Infinity;
+  for (let k = k0; k <= k1; k++) { const v = st.buf[((k % st.cap) + st.cap) % st.cap]; if (v === v) { if (v < lo) lo = v; if (v > hi) hi = v; } }
+  if (lo > hi) return;
+  const amp = Math.max(hi - lo, 1e-6);
+  lo -= amp * 0.08; hi += amp * 0.08;
+  // escala suave (não pula a cada batimento)
+  if (st.lo == null) { st.lo = lo; st.hi = hi; }
+  st.lo += (lo - st.lo) * (lo < st.lo ? 0.3 : 0.03);
+  st.hi += (hi - st.hi) * (hi > st.hi ? 0.3 : 0.03);
+  const y = v => m + (st.hi - v) / (st.hi - st.lo || 1) * (H - 2 * m);
+  ctx.strokeStyle = cor; ctx.globalAlpha = parado ? 0.45 : 1; ctx.lineWidth = 1.6; ctx.lineJoin = "round"; ctx.beginPath();
+  let caneta = false;
+  for (let k = k0; k <= k1; k++) {
+    const v = st.buf[((k % st.cap) + st.cap) % st.cap];
+    if (v !== v) { caneta = false; continue; }
+    if (caneta) ctx.lineTo(x(k), y(v)); else { ctx.moveTo(x(k), y(v)); caneta = true; }
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 function desenharComando(c) {

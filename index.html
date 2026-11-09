@@ -342,7 +342,7 @@ function esqueleto() {
       <div class="contagem oculto" id="cContagem"></div>
       <div class="alerta-sinal oculto" id="cAlerta" role="alert"></div>
       <div class="controles" id="cConectar">
-        <input type="text" id="cId" maxlength="10" placeholder="ID (opcional)" aria-label="ID da cinta" spellcheck="false" autocomplete="off">
+        <input type="text" id="cId" maxlength="10" placeholder="ID (vazio = a salva)" aria-label="ID da cinta" spellcheck="false" autocomplete="off">
         <button class="botao" id="cBtConectar">Conectar</button>
       </div>
       <div class="controles oculto" id="cParado">
@@ -358,7 +358,7 @@ function esqueleto() {
         <button class="perigo" id="cBtParar">Parar gravação</button>
       </div>
       <div class="msg" id="cMsg" style="margin-top:10px"></div>
-      <div class="nota" id="cNota">Conectar pelo painel: a cinta precisa estar no peito (ela só liga com o batimento), com os eletrodos molhados, e perto do celular. O app Aegis precisa estar aberto ou em 2º plano com a nuvem ligada.</div>
+      <div class="nota" id="cNota">Sem ID, o celular procura a última cinta conectada nele. Conectar pelo painel: a cinta precisa estar no peito (ela só liga com o batimento), com os eletrodos molhados, e perto do celular. O app Aegis precisa estar aberto ou em 2º plano com a nuvem ligada.</div>
     </div>
 
     <div class="acao" id="aoVivo">

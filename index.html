@@ -11,6 +11,9 @@
   2. Abra com o token do painel no fim do endereço:  painel.html#t=<token_painel>
      (ou abra sem e cole o token quando ele pedir; fica guardado neste navegador).
   Não use o token_celular aqui: o painel só precisa do token_painel.
+  10/11/2026 (auditoria do Fable, seção 8): duas visões no mesmo link. "Familiar" (padrão): estado, últimos sinais e
+  Medir agora. "Operador": relógio, cinta, sinal ao vivo, modos e coletas. A escolha fica guardada neste navegador
+  (ou #v=operador no endereço). É só visual: o token continua dando acesso a tudo (papéis no banco: fase 4).
 -->
 <style>
   :root {
@@ -133,8 +136,38 @@
   dialog p { margin: 0; font-size: 14.5px; }
   dialog .rodape { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px 18px; }
   .secundario { background: var(--superficie-alta); color: var(--texto); }
+  .secundario:disabled, .perigo:disabled { opacity: .5; cursor: default; }
   .token { max-width: 480px; margin: 60px auto; }
   .token input { width: 100%; font: inherit; padding: 12px; border-radius: 12px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); margin: 10px 0; }
+
+  /* 10/11/2026: visões Familiar / Operador, cartões estáveis, diálogo de confirmação */
+  body[data-visao="familiar"] .so-operador, body[data-visao="operador"] .so-familiar { display: none !important; }
+  header .topoHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .controlesTopo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  /* igual ao botão de tema do app: pílula clara com borda, meio círculo e o nome do tema */
+  .tema { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 0 14px 0 12px; border-radius: 999px;
+          background: var(--superficie); color: var(--texto); border: 1px solid var(--borda); font-size: 13.5px; }
+  .tema:hover { background: var(--superficie-alta); }
+  header .tema:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .visao { display: inline-flex; background: rgba(255,255,255,.14); border-radius: 12px; padding: 3px; }
+  .visao button { min-height: 36px; padding: 6px 14px; border-radius: 9px; background: transparent; color: #D6E2FF; font-size: 13.5px; }
+  .visao button[aria-pressed="true"] { background: #fff; color: var(--painel); font-weight: 600; }
+  .visao button:focus-visible, button:focus-visible { outline: 2px solid var(--primaria); outline-offset: 2px; }
+  header .visao button:focus-visible { outline-color: #fff; }
+  .cartao .val .num { display: inline-block; }
+  .cartao .val.mudou .num { animation: mudou .6s ease-out; }
+  @keyframes mudou { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .cartao { transition: opacity .3s; }
+  @media (prefers-reduced-motion: reduce) { .cartao .val.mudou .num { animation: none; } .cartao { transition: none; } }
+  .acao.destaque { background: var(--painel); border-color: transparent; color: #fff; padding: 20px; }
+  .acao.destaque .msg { color: #D6E2FF; } .acao.destaque .msg.ok { color: #9FF0C6; } .acao.destaque .msg.erro { color: #FFC2C2; }
+  .acao.destaque .botao { background: #fff; color: var(--painel); min-height: 52px; padding: 0 26px; font-size: 16px; }
+  .acao.destaque .botao:hover { background: #E8EEFB; }
+  .acao.destaque h2 { margin: 0 0 4px; color: #fff; font-size: 18px; }
+  .acao.destaque .barra { background: rgba(255,255,255,.2); } .acao.destaque .barra > div { background: #fff; }
+  #dlgConf p { color: var(--texto-2); }
+  #dlgConf .detalhe { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--superficie-alta); color: var(--texto); font-size: 14px; font-variant-numeric: tabular-nums; }
+  #dlgConf .rodape button { min-height: 44px; }
 </style>
 </head>
 <body>
@@ -151,6 +184,46 @@ const fmtHora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-d
 const fmtDataHora = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const num1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 let token = null, dados = null, timer = null, falhas = 0, pedindo = false;
+
+// ---------- Tema (10/11/2026): Automático (segue o sistema) → Claro → Escuro, guardado neste navegador ----------
+const TEMAS = [["", "Automático"], ["light", "Claro"], ["dark", "Escuro"]];
+let tema = (() => { try { const t = localStorage.getItem("aegis_tema"); return t === "light" || t === "dark" ? t : ""; } catch (e) { return ""; } })();
+function aplicarTema() {
+  if (tema) document.documentElement.dataset.theme = tema; else delete document.documentElement.dataset.theme;
+  const b = document.getElementById("btTemaTexto");
+  if (b) b.textContent = TEMAS.find(x => x[0] === tema)[1];
+  const bt = document.getElementById("btTema");
+  if (bt) bt.setAttribute("aria-label", "Tema: " + TEMAS.find(x => x[0] === tema)[1] + ". Toque para trocar");
+}
+function trocarTema() {
+  tema = TEMAS[(TEMAS.findIndex(x => x[0] === tema) + 1) % TEMAS.length][0];
+  try { localStorage.setItem("aegis_tema", tema); } catch (e) {}
+  aplicarTema();
+}
+aplicarTema();
+
+// ---------- Visão do painel (10/11/2026): "familiar" (simples, padrão) ou "operador" (equipe) ----------
+let visao = (() => {
+  const m = location.hash.match(/[#&]v=(familiar|operador)/);
+  if (m) { try { localStorage.setItem("aegis_visao", m[1]); } catch (e) {} return m[1]; }
+  try { return localStorage.getItem("aegis_visao") === "operador" ? "operador" : "familiar"; } catch (e) { return "familiar"; }
+})();
+function operador() { return visao === "operador"; }
+function trocarVisao(v) {
+  visao = v;
+  try { localStorage.setItem("aegis_visao", v); } catch (e) {}
+  document.body.dataset.visao = v;
+  document.querySelectorAll(".visao button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v));
+  const med = document.getElementById("caixaMedir");
+  if (med) med.classList.toggle("destaque", v === "familiar");
+  if (dados) desenhar(); else textoPadrao();
+}
+/** Mensagem técnica (migração, versão do app) só na visão do operador; o familiar vê a versão simples. */
+function tecnico(paraOperador, paraFamiliar) { return operador() ? paraOperador : paraFamiliar; }
+/** Troca o texto só quando muda (o leitor de tela não relê, nada pisca). */
+function porTexto(el, t) { if (el && el.textContent !== t) el.textContent = t; }
+/** Troca o HTML só quando muda (para listas que ainda são montadas por texto). */
+function porHtml(el, h) { if (el && el.dataset.html !== h) { el.dataset.html = h; el.innerHTML = h; } }
 
 function lerToken() {
   const m = location.hash.match(/[#&]t=([0-9a-f]{32,})/i);
@@ -285,6 +358,7 @@ function textoPadrao() {
   const msg = document.getElementById("msgMedir");
   if (!msg || msg.dataset.ocupado === "1") return;
   msg.className = "msg";
+  if (!operador()) { msg.textContent = "O relógio mede por 30 segundos e os valores aparecem aqui. Peça para a pessoa ficar parada."; return; }
   msg.textContent = MODOS[modo].vivo ? "O celular liga o relógio e os valores aparecem aqui ao vivo."
     : modo === "ECG" ? "Alguém precisa abrir o ECG no menu do relógio."
     : modo === "H10" ? "O celular grava a cinta (conectada acima); aqui aparece o resumo no fim."
@@ -314,17 +388,26 @@ function telaToken(erro) {
 function esqueleto() {
   app.innerHTML = `
     <header>
-      <div class="marca">Aegis · acompanhamento remoto</div>
+      <div class="topoHeader">
+        <div class="marca">Aegis · acompanhamento remoto</div>
+        <div class="controlesTopo">
+        <button type="button" class="tema" id="btTema" title="Trocar o tema (automático, claro, escuro)"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg><span id="btTemaTexto">Automático</span></button>
+        <div class="visao" role="group" aria-label="Visão do painel">
+          <button type="button" data-v="familiar" aria-pressed="false">Familiar</button>
+          <button type="button" data-v="operador" aria-pressed="false">Operador</button>
+        </div>
+        </div>
+      </div>
       <h1 id="nome">…</h1>
-      <div class="pilula"><span class="ponto" id="ponto"></span><span id="estado">Carregando…</span></div>
-      <div class="pilula" id="h10linha" style="display:none"><span class="ponto" id="h10ponto"></span><span id="h10estado"></span></div>
+      <div class="pilula"><span class="ponto" id="ponto"></span><span id="estado" aria-live="polite">Carregando…</span></div>
+      <div class="pilula so-operador" id="h10linha" style="display:none"><span class="ponto" id="h10ponto"></span><span id="h10estado"></span></div>
     </header>
 
     <h2>Últimos sinais</h2>
     <div class="grade" id="cartoes"></div>
     <div class="quando" id="quando"></div>
 
-    <div class="acao cinta" id="relogio">
+    <div class="acao cinta so-operador" id="relogio">
       <div class="topo"><span class="ponto" id="rPonto"></span><span class="titulo">Relógio iSmarch</span></div>
       <div class="sub" id="rEstado">…</div>
       <div class="controles" id="rControles">
@@ -335,7 +418,7 @@ function esqueleto() {
       <div class="nota" id="rNota">Conectar pelo painel: o relógio precisa estar ligado e perto do celular. Sem MAC, o celular usa o último relógio salvo no app.</div>
     </div>
 
-    <div class="acao cinta" id="cinta">
+    <div class="acao cinta so-operador" id="cinta">
       <div class="topo"><span class="ponto" id="cPonto"></span><span class="titulo">Cinta Polar H10</span><span class="selo">referência</span></div>
       <div class="sub" id="cEstado">…</div>
       <div class="mini oculto" id="cMini"></div>
@@ -361,7 +444,7 @@ function esqueleto() {
       <div class="nota" id="cNota">Sem ID, o celular procura a última cinta conectada nele. Conectar pelo painel: a cinta precisa estar no peito (ela só liga com o batimento), com os eletrodos molhados, e perto do celular. O app Aegis precisa estar aberto ou em 2º plano com a nuvem ligada.</div>
     </div>
 
-    <div class="acao" id="aoVivo">
+    <div class="acao so-operador" id="aoVivo">
       <div class="rotulo">Sinal ao vivo</div>
       <div class="seg" id="verSeg" role="group" aria-label="Sinal ao vivo">
         <button data-f="h10_ecg" aria-pressed="false">ECG da cinta</button>
@@ -374,23 +457,24 @@ function esqueleto() {
       </div>
     </div>
 
-    <div class="acao">
-      <div class="rotulo">Modo de medição</div>
-      <div class="modos" id="modos" role="radiogroup" aria-label="Modo de medição"></div>
+    <div class="acao" id="caixaMedir">
+      <h2 class="so-familiar">Pedir uma medição</h2>
+      <div class="rotulo so-operador">Modo de medição</div>
+      <div class="modos so-operador" id="modos" role="radiogroup" aria-label="Modo de medição"></div>
       <div class="linha">
         <button class="botao" id="medir">Medir agora</button>
-        <select id="duracao" aria-label="Duração da medição">
+        <select id="duracao" class="so-operador" aria-label="Duração da medição">
           <option value="30">30 s</option><option value="60" selected>60 s</option><option value="90">90 s</option>
           <option value="120">2 min</option><option value="180">3 min</option><option value="300">5 min</option>
           <option value="360">6 min</option><option value="600">10 min</option><option value="900">15 min</option>
         </select>
-        <select id="atividadeMed" aria-label="Atividade da medição"><option value="">Atividade (opcional)</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
-        <label class="cx" id="comCintaRot" style="display:inline-flex;gap:6px;align-items:center;font-size:14px;cursor:pointer">
+        <select id="atividadeMed" class="so-operador" aria-label="Atividade da medição"><option value="">Atividade (opcional)</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
+        <label class="cx so-operador" id="comCintaRot" style="display:inline-flex;gap:6px;align-items:center;font-size:14px;cursor:pointer">
           <input type="checkbox" id="comCinta"> + cinta H10</label>
       </div>
       <div class="msg" id="msgMedir" style="margin-top:10px"></div>
       <div class="barra" id="barra"><div></div></div>
-      <div class="controles oculto" id="durante">
+      <div class="controles oculto so-operador" id="durante">
         <button class="botao" id="mBtMarcar">Marcar</button>
         <select id="mNovaAtividade" aria-label="Nova atividade"><option value="">Trocar atividade…</option><option value="deitado">Deitado</option><option value="sentado">Sentado</option><option value="em_pe">Em pé</option><option value="caminhada">Caminhada</option><option value="livre">Livre (dia a dia)</option></select>
         <button class="perigo" id="mBtParar">Parar agora</button>
@@ -412,8 +496,20 @@ function esqueleto() {
       </div>
     </dialog>
 
-    <h2>Coletas recentes</h2>
-    <ul class="lista" id="sessoes"></ul>
+    <dialog id="dlgConf" aria-labelledby="confTitulo" aria-describedby="confTexto">
+      <div class="corpo">
+        <h3 id="confTitulo"></h3>
+        <p id="confTexto" style="margin-top:8px"></p>
+        <div class="detalhe oculto" id="confDetalhe"></div>
+      </div>
+      <div class="rodape">
+        <button class="secundario" id="confCancelar">Cancelar</button>
+        <button class="perigo" id="confOk">Confirmar</button>
+      </div>
+    </dialog>
+
+    <h2 class="so-operador">Coletas recentes</h2>
+    <ul class="lista so-operador" id="sessoes"></ul>
 
     <div class="aviso">
       <b>Protótipo de pesquisa — não é um dispositivo médico.</b> Os valores vêm de um relógio de pulso sem validação clínica.
@@ -423,6 +519,10 @@ function esqueleto() {
       Em caso de mal-estar, procure atendimento ou ligue 192 (SAMU).
     </div>`;
   document.getElementById("medir").onclick = pedirMedicao;
+  document.querySelectorAll(".visao button").forEach(b => b.onclick = () => trocarVisao(b.dataset.v));
+  document.getElementById("btTema").onclick = trocarTema;
+  aplicarTema();
+  montarCartoes();
   montarModos();
   const dur = lerPref("aegis_duracao"), selDur = document.getElementById("duracao");
   if ([...selDur.options].some(o => o.value === dur)) selDur.value = dur;
@@ -440,6 +540,7 @@ function esqueleto() {
   ligarPref("atividadeMed", "aegis_atividade_med", "");
   ligarPref("comCinta", "aegis_com_cinta", false);
   ligarAoVivo();
+  trocarVisao(visao);
   document.getElementById("cBtConectar").onclick = () => acao("h10_conectar", { id: document.getElementById("cId").value.trim().toUpperCase() });
   document.getElementById("cBtDesconectar").onclick = () => acao("h10_desconectar");
   document.getElementById("cBtIniciar").onclick = () => {
@@ -447,19 +548,47 @@ function esqueleto() {
     if (!at.value) { at.focus(); return mostrarMsg("cMsg", "Escolha a atividade antes de iniciar.", "erro"); }
     acao("h10_iniciar", { ecg: document.getElementById("cEcg").checked, acc: document.getElementById("cAcc").checked, atividade: at.value });
   };
-  document.getElementById("cBtParar").onclick = () => { if (confirm("Parar a gravação da cinta?")) acao("h10_parar"); };
+  document.getElementById("cBtParar").onclick = async () => {
+    if (await confirmar("Parar a gravação da cinta?", "O que já foi gravado fica salvo no celular.", detalheCinta(), "Parar a gravação")) acao("h10_parar");
+  };
   document.getElementById("cBtMarcar").onclick = () => acao("marcar", { etapa: "marca" });
   document.getElementById("mBtMarcar").onclick = () => acao("marcar", { etapa: "marca" });
-  document.getElementById("mBtParar").onclick = () => { if (confirm("Parar a medição agora? O que já foi gravado fica salvo.")) acao("parar_medicao"); };
+  document.getElementById("mBtParar").onclick = async () => {
+    if (await confirmar("Parar a medição agora?", "O que já foi gravado fica salvo no celular.", detalheMedicao(), "Parar agora")) acao("parar_medicao");
+  };
   for (const id of ["cNovaAtividade", "mNovaAtividade"]) {
     const sel = document.getElementById(id);
     sel.onchange = () => { if (sel.value) acao("marcar", { etapa: sel.value }); sel.value = ""; };
   }
 }
 
-function cartao(rot, val, un, selo, velho) {
-  return `<div class="cartao${velho ? " velho" : ""}"><div class="rot">${rot}${selo ? ` <span class="selo">${selo}</span>` : ""}</div>
-          <div class="val">${val ?? "—"}${val != null && un ? `<small>${un}</small>` : ""}</div></div>`;
+// Cartões (10/11/2026): criados uma vez; a cada atualização só o texto muda, com uma transição curta no número.
+// Ordem: as duas FC da validação lado a lado (cinta e nosso cálculo pelo PPG), depois a FC do próprio relógio
+const CARTOES = ["h10", "ppg", "fc", "spo2", "temp", "resp"];
+function montarCartoes() {
+  document.getElementById("cartoes").innerHTML = CARTOES.map(k => `
+    <div class="cartao oculto" data-k="${k}"><div class="rot"><span class="nomeRot"></span><span class="selo oculto"></span></div>
+      <div class="val"><span class="num"></span><small></small></div></div>`).join("")
+    + `<div class="cartao vazio oculto" data-k="vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
+}
+/** c = { rot, val, un, selo, velho } ou null (esconde). */
+function porCartao(k, c) {
+  const el = document.querySelector(`#cartoes [data-k="${k}"]`);
+  if (!el) return;
+  el.classList.toggle("oculto", !c);
+  if (!c || k === "vazio") return;
+  el.classList.toggle("velho", !!c.velho);
+  porTexto(el.querySelector(".nomeRot"), c.rot);
+  const selo = el.querySelector(".selo");
+  selo.classList.toggle("oculto", !c.selo);
+  porTexto(selo, c.selo || "");
+  const val = el.querySelector(".val"), num = val.querySelector(".num"), v = c.val == null ? "—" : String(c.val);
+  if (num.textContent !== v) {
+    const antes = num.textContent;
+    num.textContent = v;
+    if (antes && antes !== "—" && v !== "—") { val.classList.remove("mudou"); void val.offsetWidth; val.classList.add("mudou"); }
+  }
+  porTexto(val.querySelector("small"), c.val != null && c.un ? c.un : "");
 }
 
 /** completo = false: atualização rápida (painel_vivo), sem redesenhar o gráfico e as coletas. */
@@ -469,10 +598,10 @@ function desenhar(completo = true) {
 
   // Status do celular
   const s = d.status, ponto = document.getElementById("ponto"), est = document.getElementById("estado");
-  if (!s) { ponto.className = "ponto"; est.textContent = "O celular ainda não se conectou à nuvem."; }
-  else if (s.segundos_atras > 45) { ponto.className = "ponto erro"; est.textContent = `Celular fora do ar (último contato ${ha(s.segundos_atras)})`; }
-  else if (s.conexao !== "CONECTADO") { ponto.className = "ponto alerta"; est.textContent = `Celular online · relógio ${s.conexao === "RECONECTANDO" ? "reconectando" : "desconectado"}`; }
-  else { ponto.className = "ponto ok"; est.textContent = `Celular online · relógio conectado${s.sensor ? " · gravando " + s.sensor : ""}`; }
+  if (!s) { ponto.className = "ponto"; porTexto(est, "O celular ainda não se conectou à nuvem."); }
+  else if (s.segundos_atras > 45) { ponto.className = "ponto erro"; porTexto(est, `Celular fora do ar (último contato ${ha(s.segundos_atras)})`); }
+  else if (s.conexao !== "CONECTADO") { ponto.className = "ponto alerta"; porTexto(est, `Celular online · relógio ${s.conexao === "RECONECTANDO" ? "reconectando" : "desconectado"}`); }
+  else { ponto.className = "ponto ok"; porTexto(est, `Celular online · relógio conectado${s.sensor && operador() ? " · gravando " + s.sensor : s.sensor ? " · medindo" : ""}`); }
 
   const h10 = desenharH10(s);
   desenharRelogio(s);
@@ -483,36 +612,54 @@ function desenhar(completo = true) {
   const u = d.ultima_leitura;
   // SpO2: o 0x64 só repassa a última SpO2 medida no menu Blood Oxygen do relógio (02/11); sem ela vem 0 (null no banco).
   const comSpo2 = u && u.spo2 ? u : [...d.leituras].reverse().find(l => l.spo2);
-  const cartaoH10 = h10 ? cartao("FC · cinta H10", h10.fc, "bpm", "referência") : "";
+  // A FC da cinta e a do PPG (nosso cálculo) são da pesquisa: só na visão do operador (10/11)
+  const op = operador();
+  const cH10 = op && h10 ? { rot: "FC · cinta H10", val: h10.fc, un: "bpm", selo: "referência" } : null;
   // 09/11: FC calculada pelo app a partir do PPG do relógio (FcPpg.java), enquanto o PPG chega
-  const pp = ppgVivo(s), cartaoPpg = pp ? cartao("FC · PPG do relógio", pp.fc ?? null, "bpm", pp.fc != null ? "nosso cálculo" : (MOTIVO_PPG[pp.qualidade] || "sem FC")) : "";
+  const pp = op ? ppgVivo(s) : null;
+  let cPpg = pp ? { rot: "FC · PPG do relógio", val: pp.fc ?? null, un: "bpm", selo: pp.fc != null ? "nosso cálculo" : (MOTIVO_PPG[pp.qualidade] || "sem FC") } : null;
+  // Diagnóstico (10/11): o relógio grava PPG mas a FC calculada pelo app não chega → o cartão aparece e diz isso
+  if (op && !pp && s && s.segundos_atras <= 45 && ["PPG-ACC", "PPG"].includes(s.sensor)) {
+    const id = idadePpg(s);
+    cPpg = { rot: "FC · PPG do relógio", val: null, un: "bpm",
+             selo: id == null ? "o app não mandou a FC" : `o app não manda a FC há ${duracao(id)}` };
+  }
   // Leitura do relógio com mais de 10 min: esmaecida e com a idade no selo (06/11), para não parecer ao vivo
   const idadeU = u ? segDesde(u.medido_em) : null, velho = idadeU != null && idadeU > 600;
   const selo = base => [base, velho ? ha(idadeU) : ""].filter(Boolean).join(" · ");
-  document.getElementById("cartoes").innerHTML = u ? [
-    cartao("Freq. cardíaca", u.fc, "bpm", selo(h10 ? "relógio" : ""), velho),
-    cartaoH10,
-    cartaoPpg,
-    comSpo2 ? cartao("SpO₂", comSpo2.spo2, "%", "do relógio" + (comSpo2 === u ? (velho ? " · " + ha(idadeU) : "") : " · " + ha(segDesde(comSpo2.medido_em))), velho) : "",
-    cartao("Temperatura", u.temp != null ? num1.format(u.temp) : null, "°C", selo(""), velho),
-    cartao("Respiração", u.resp, "/min", selo("estimada"), velho),
-  ].join("") : (cartaoH10 + cartaoPpg) || `<div class="cartao vazio" style="grid-column:1/-1">Nenhuma leitura ainda. Toque em “Medir agora”.</div>`;
+  porCartao("fc", u ? { rot: "Freq. cardíaca", val: u.fc, un: "bpm", selo: selo(cH10 ? "relógio" : ""), velho } : null);
+  porCartao("h10", cH10);
+  porCartao("ppg", cPpg);
+  porCartao("spo2", u && comSpo2 ? { rot: "SpO₂", val: comSpo2.spo2, un: "%", velho,
+    selo: "do relógio" + (comSpo2 === u ? (velho ? " · " + ha(idadeU) : "") : " · " + ha(segDesde(comSpo2.medido_em))) } : null);
+  porCartao("temp", u ? { rot: "Temperatura", val: u.temp != null ? num1.format(u.temp) : null, un: "°C", selo: selo(""), velho } : null);
+  porCartao("resp", u ? { rot: "Respiração", val: u.resp, un: "/min", selo: selo("estimada"), velho } : null);
+  porCartao("vazio", !u && !cH10 && !cPpg ? {} : null);
   document.getElementById("quando").textContent = u ? `Última leitura ${ha(segDesde(u.medido_em))} (${fmtDataHora.format(new Date(u.medido_em))})` : "";
 
   desenharComando(d.comandos[0]);
   if (!completo) return;
 
-  document.getElementById("sessoes").innerHTML = d.sessoes.length ? d.sessoes.map(x => `
+  porHtml(document.getElementById("sessoes"), d.sessoes.length ? d.sessoes.map(x => `
     <li><span>${x.sensor === "H10" ? "Polar H10" : esc(x.sensor)}${x.duracao_s != null ? ` · ${duracao(x.duracao_s)}` : ""}<br><span class="sub">${esc([x.n_rr != null ? `${x.n_rr} RR` + (x.ecg ? " + ECG" : "") + (x.acc ? " + ACC" : "") : "", x.fc_mediana != null ? `FC ${x.fc_mediana} bpm` : "", x.sinais_parados ? `sinal parou ${x.sinais_parados}×` : "", x.motivo_fim || ""].filter(Boolean).join(" · "))}</span></span>
         <span class="sub" style="text-align:right">${fmtDataHora.format(new Date(x.recebido_em))}${x.quedas_conexao ? `<br>${x.quedas_conexao} ${x.quedas_conexao == 1 ? "queda" : "quedas"} de conexão` : ""}</span></li>`).join("")
-    : `<li class="sub">Nenhuma coleta enviada ainda.</li>`;
+    : `<li class="sub">Nenhuma coleta enviada ainda.</li>`);
 }
 
 const MOTIVO_PPG = { movimento: "braço mexendo", irregular: "pulsos irregulares", pouco: "sinal curto" };
+/**
+ * Idade (s) da FC do PPG só com horários do servidor (10/11): segundos_atras vem calculado pelo banco para
+ * atualizado_em, e ppg_em é do mesmo relógio. Antes usava o relógio do computador (segDesde): com o PC alguns
+ * segundos fora da hora, o cartão sumia.
+ */
+function idadePpg(s) {
+  if (!s || !s.ppg_em || !s.atualizado_em) return null;
+  return Math.max(0, Math.round(s.segundos_atras + (Date.parse(s.atualizado_em) - Date.parse(s.ppg_em)) / 1000));
+}
 /** FC do PPG mandada pelo app (celular_ppg, 09/11) se ainda vale: PPG ativo, chegou há ≤ 15 s e celular online. */
 function ppgVivo(s) {
-  const p = s && s.ppg;
-  return p && p.ativo && s.segundos_atras <= 45 && segDesde(s.ppg_em) <= 15 ? p : null;
+  const p = s && s.ppg, idade = idadePpg(s);
+  return p && p.ativo && s.segundos_atras <= 45 && idade != null && idade <= 15 ? p : null;
 }
 
 function duracao(seg) {
@@ -597,13 +744,13 @@ function desenharCinta(s) {
   mostrar("cMini", conectada);
   if (conectada) {
     const tile = (r, v, un) => `<div><div class="r">${r}</div><div class="v">${v ?? "—"}${v != null && un ? `<small>${un}</small>` : ""}</div></div>`;
-    document.getElementById("cMini").innerHTML = [
+    porHtml(document.getElementById("cMini"), [
       tile("FC", h.fc, "bpm"), tile("RR", h.rr, "ms"),
       // a H10 só informa o contato com ECG/ACC ligado (gravando ou vendo o ECG) — 06/11
       h.contato === 1 || h.contato === 0 ? tile("Contato", h.contato === 1 ? "ok" : "sem contato") : tile("Contato (só c/ ECG)", "—"),
       grav ? tile("Atividade", h.etapa ? esc(nomeAtividade(h.etapa)) : "—", "") : "",
       grav ? tile("Marcas", h.marcas ?? 0, "") : "",
-    ].join("");
+    ].join(""));
   }
   // Contadores gravados + taxa ao vivo
   mostrar("cContagem", grav);
@@ -662,7 +809,10 @@ function desenharRelogio(s) {
     bt.onclick = () => acao("relogio_conectar", { mac: mac.value.trim().toUpperCase() });
   } else if (est === "CONECTADO") {
     bt.textContent = "Desconectar"; bt.className = "secundario";
-    bt.onclick = () => { if (confirm("Desconectar o relógio do celular?")) acao("relogio_desconectar"); };
+    bt.onclick = async () => {
+      if (await confirmar("Desconectar o relógio?", "Para conectar de novo, o relógio precisa estar ligado e perto do celular.",
+                          [`Relógio${id}`, s.rssi ? `sinal ${s.rssi} dBm` : ""].filter(Boolean).join(" · "), "Desconectar")) acao("relogio_desconectar");
+    };
   } else {
     bt.textContent = "Cancelar"; bt.className = "secundario";
     bt.onclick = () => acao("relogio_desconectar");
@@ -699,7 +849,8 @@ async function acao(nome, parametros) {
     await rpc("painel_acao", { p_token: token, p_acao: nome, p_parametros: parametros || {} });
   } catch (e) {
     acaoErroLocal = true;
-    mostrarMsg(alvo, `${NOMES_ACAO[nome] || nome}: falha ao enviar — ${e.message}${/ação desconhecida: relogio_/.test(e.message) ? " (rode a migração de 09/11 no Supabase)" : /painel_acao/.test(e.message) ? " (rode a migração de 06/11 no Supabase)" : ""}`, "erro");
+    mostrarMsg(alvo, tecnico(`${NOMES_ACAO[nome] || nome}: falha ao enviar — ${e.message}${/ação desconhecida: relogio_/.test(e.message) ? " (rode a migração de 09/11 no Supabase)" : /painel_acao/.test(e.message) ? " (rode a migração de 06/11 no Supabase)" : ""}`,
+                            `${NOMES_ACAO[nome] || nome}: não foi possível enviar agora. Tente de novo em instantes.`), "erro");
     return;
   }
   vivo();
@@ -1076,26 +1227,67 @@ function resumoResultado(c, m) {
   let t = `${esc(m.nome)} de ${hora}: ${esc(partes.filter(Boolean).join(", ") || "concluída")}.`;
   if (c.sensor !== "H10" && c.parametros && c.parametros.h10) {
     t += r.h10 ? `<br>Cinta H10: ${esc(resumoCinta(r.h10) || "sem dados")}.`
-      : `<br><span style="color:var(--alerta)">A cinta não gravou junto (app do celular de antes de 06/11?).</span>`;
+      : tecnico(`<br><span style="color:var(--alerta)">A cinta não gravou junto (app do celular de antes de 06/11?).</span>`, "");
   }
   if (r.aviso) t += ` <span style="color:var(--alerta)">Atenção: ${esc(r.aviso)}.</span>`;
-  if (bruto && r.arquivo) t += `<br><span class="sub" style="color:var(--texto-2)">Arquivo no celular: ${esc(r.arquivo)}</span>`;
-  if (r.h10 && r.h10.arquivo && c.sensor !== "H10") t += `<br><span class="sub" style="color:var(--texto-2)">Cinta: ${esc(r.h10.arquivo)}</span>`;
+  if (bruto && r.arquivo && operador()) t += `<br><span class="sub" style="color:var(--texto-2)">Arquivo no celular: ${esc(r.arquivo)}</span>`;
+  if (r.h10 && r.h10.arquivo && c.sensor !== "H10" && operador()) t += `<br><span class="sub" style="color:var(--texto-2)">Cinta: ${esc(r.h10.arquivo)}</span>`;
   return t;
+}
+
+// ---------- Confirmação própria (10/11/2026): no lugar do confirm() do navegador, mostrando o que está gravando ----------
+function confirmar(titulo, texto, detalhe, rotuloOk) {
+  const dlg = document.getElementById("dlgConf");
+  if (!dlg || !dlg.showModal) return Promise.resolve(window.confirm(titulo + (detalhe ? "\n" + detalhe : "")));
+  document.getElementById("confTitulo").textContent = titulo;
+  document.getElementById("confTexto").textContent = texto || "";
+  const det = document.getElementById("confDetalhe");
+  det.textContent = detalhe || ""; det.classList.toggle("oculto", !detalhe);
+  const ok = document.getElementById("confOk"), cancelar = document.getElementById("confCancelar");
+  ok.textContent = rotuloOk || "Confirmar";
+  return new Promise(res => {
+    let feito = false;
+    const fim = v => { if (feito) return; feito = true; if (dlg.open) dlg.close(); res(v); };
+    ok.onclick = () => fim(true);
+    cancelar.onclick = () => fim(false);
+    dlg.onclose = () => fim(false);            // Esc
+    dlg.onclick = e => { if (e.target === dlg) fim(false); };   // clicar fora
+    dlg.showModal();
+    cancelar.focus();                          // ação que interrompe: o foco começa no Cancelar
+  });
+}
+/** "PPG + acelerômetro + cinta H10 · 2 min 14 s de 5 min · atividade Sentado" */
+function detalheMedicao() {
+  const c = dados && dados.comandos[0];
+  if (!c || c.estado !== "executando") return "";
+  const m = MODOS[c.sensor || "VITAIS"] || { nome: c.sensor };
+  const comCinta = c.sensor !== "H10" && c.parametros && c.parametros.h10;
+  const at = c.parametros && c.parametros.atividade;
+  return [m.nome + (comCinta ? " + cinta H10" : ""), `${duracao(Math.min(segDesde(c.iniciado_em), c.duracao_s))} de ${duracao(c.duracao_s)}`,
+          at ? "atividade " + nomeAtividade(at) : ""].filter(Boolean).join(" · ");
+}
+/** "Gravando há 3 min 12 s · 259 RR · ECG · ACC" */
+function detalheCinta() {
+  const s = dados && dados.status, h = s && s.h10;
+  if (!h || !h.gravando) return "";
+  return [`Gravando há ${duracao((h.gravando_s || 0) + (s.h10_segundos_atras || 0))}`, h.n_rr != null ? `${numInt.format(h.n_rr)} RR` : "",
+          h.ecg ? "ECG" : "", h.acc ? "ACC" : "", h.etapa ? "atividade " + nomeAtividade(h.etapa) : ""].filter(Boolean).join(" · ");
 }
 
 async function pedirMedicao() {
   pedindo = true; document.getElementById("medir").disabled = true;
   try {
-    const par = {}, at = document.getElementById("atividadeMed").value;
+    const par = {}, op = operador(), at = op ? document.getElementById("atividadeMed").value : "";
     if (at) par.atividade = at;
     const cinta = { ecg: document.getElementById("cEcg").checked, acc: document.getElementById("cAcc").checked };
-    if (modo === "H10" || (document.getElementById("comCinta").checked && cintaConectada)) par.h10 = cinta;
-    const args = { p_token: token, p_duracao_s: +document.getElementById("duracao").value, p_sensor: modo };
+    if (op && (modo === "H10" || (document.getElementById("comCinta").checked && cintaConectada))) par.h10 = cinta;
+    // Visão do familiar (10/11): sempre os sinais vitais do relógio, 30 s
+    const args = { p_token: token, p_duracao_s: op ? +document.getElementById("duracao").value : 30, p_sensor: op ? modo : "VITAIS" };
     if (Object.keys(par).length) args.p_parametros = par;
     await rpc("painel_pedir_medicao", args);
   } catch (e) {
-    const msg = document.getElementById("msgMedir"); msg.className = "msg erro"; msg.textContent = "Falha ao pedir: " + e.message;
+    const msg = document.getElementById("msgMedir"); msg.className = "msg erro";
+    msg.textContent = tecnico("Falha ao pedir: " + e.message, "Não foi possível pedir a medição agora. Confira se o celular está ligado e com internet.");
   }
   pedindo = false; vivo();
 }
@@ -1120,7 +1312,7 @@ function agendar() {
 function falhou(e) {
   if (/token/i.test(e.message)) { try { localStorage.removeItem("aegis_token_painel"); } catch (x) {} telaToken("Código inválido. Confira o token_painel."); return true; }
   falhas++;
-  document.getElementById("estado").textContent = "Sem conexão com a nuvem (" + e.message + "). Tentando de novo…";
+  document.getElementById("estado").textContent = tecnico("Sem conexão com a nuvem (" + e.message + "). Tentando de novo…", "Sem conexão com a internet. Tentando de novo…");
   document.getElementById("ponto").className = "ponto erro";
   return false;
 }
